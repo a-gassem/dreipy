@@ -1,43 +1,38 @@
-from helpers import makeID
-
 class Question:
     """This class is responsible for storing the data needed to display a
-    question in an election with its query and choices. It assumes that well-
-    formed input has been passed to the constructor so all data sanitisation
-    should occur before an instance is created.
+question in an election with its query and choices. It assumes that well-
+formed input has been passed to the constructor so all data sanitisation
+should occur before an instance is created.
 
-    Attributes:
-    - question_id(int)          -- unique identifier for this Question object
-    - query(str)                -- string representation of the question itself
-    - num(int)                  -- question number (used for ordering in an election)
-    - max_answers(int)          -- the maximum number of answers that can be given for
-                                   the question (default = 1)
-    - choices(dict{int:string}) -- dictionary of answers for this Question
-                                   where the index of the choice maps to its answer
+Attributes:
+- question_id(str)          -- unique identifier string for this Question object
+- query(str)                -- string representation of the question itself
+- max_answers(int)          -- the maximum number of answers that can be given for
+                               the question (default = 1)
+- choices(dict{int:string}) -- dictionary of answers for this Question,
+                               where the index of the choice maps to its answer
 
-    Methods:
+Methods:
 
-    Overridden methods:
-    - __str__(self) -- returns self.query joined with each Choice on a newline
+Overridden methods:
+- __str__(self) -- returns self.query joined with each Choice on a newline
 
-    Getters:
-    - getQID(self)     -- returns self.question_id
-    - getQuery(self)   -- returns self.query
-    - getQNum(self)    -- returns self.num
-    - getMaxAns(self)  -- returns self.max_answers
-    - getChoices(self) -- returns self.choices
+Getters:
+- getQID(self)     -- returns self.question_id
+- getQuery(self)   -- returns self.query
+- getMaxAns(self)  -- returns self.max_answers
+- getChoices(self) -- returns self.choices
 
-    Helpers:
-    - isMulti(self)             -- returns True iff self.max_answers > 1
-    - getChoiceByIndex(self, i) -- returns the answer at self.choices[i]
-    - getNumChoices(self)       -- returns the number of choices available for this
-                                   question."""
+Helpers:
+- isMulti(self)             -- returns True iff self.max_answers > 1
+- getChoiceByIndex(self, i) -- returns the answer at self.choices[i]
+- getNumChoices(self)       -- returns the number of choices available for this
+                               question."""
     
     # Constructor + getters
-    def __init__(self, query, num, choices, max_answers=1):
-        self.question_id = makeID()
+    def __init__(self, newID, query, choices, max_answers=1):
+        self.question_id = newID
         self.query = query
-        self.num = num
         self.max_answers = max_answers
         self.choices = choices
 
@@ -52,10 +47,7 @@ class Question:
 
     def getQuery(self):
         return self.query
-
-    def getQNum(self):
-        return self.num
-
+    
     def getMaxAns(self):
         return self.max_answers
 
