@@ -3,15 +3,50 @@ class Election:
 election: its questions, the start/end times and ???
 
 Attributes:
+- election_id(str)              -- random, unique identifier for this election
 - start_time(datetime.time)     -- the date/time that the election opens for
                                    voting, down to the precision of a second.
 - end_time(datetime.time)       -- the date/time that the election closes for
                                    voting, down to the precision of a second.
 - questions(dict{int:Question}) -- dictionary of questions for this election,
                                    where index i maps to the i-th Question object. 
+- sql_questions(list(4-tuples)) -- a list of tuples that are formatted to be used
+                                   with Cursor.executemany() when inserting this
+                                   object into the database
+
+Methods:
+
+Getters:
+- getElectionId(self)   -- returns self.election_id
+- getQuestions(self)    -- returns self.questions
+- getStartTime(self)    -- returns self.start_time
+- getEndTime(self)      -- returns self.end_time
+- getSqlQuestions(self) -- returns self.sql_questions
 """
 
-    def __init__(self, questions, start_time, end_time):
+    def _makeQuestionTuples(questionDict):
+        questionList = []
+        for q_index, question in questionDict:
+            questionList.append((question.getQuestionId(), question.getQuery(),
+                                 q_index, question.getMaxAns()))
+        return questionList
+
+    def __init__(self, election_id, questions, start_time, end_time):
+        self.election_id = election_id
         self.questions = questions
         self.start_time = start_time
         self.end_time = end_time
+        self.sql_questions = _makeQuestionTuples(questions)
+
+    def getElectionId(self):
+        return self.election_id
+
+    def getQuestions(self):
+        return self.questions
+
+    def getStartTime(self):
+        return self.start_time
+
+    def getEndTime(self):
+        return self.end_time
+    
