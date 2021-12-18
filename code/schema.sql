@@ -2,7 +2,6 @@ DROP TABLE IF EXISTS voters;
 DROP TABLE IF EXISTS elections;
 DROP TABLE IF EXISTS questions;
 DROP TABLE IF EXISTS ballots;
-DROP TABLE IF EXISTS bulletins;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS choices;
 DROP TABLE IF EXISTS question_choices;
@@ -10,13 +9,14 @@ DROP TABLE IF EXISTS election_questions;
 
 CREATE TABLE voters (
   voter_id VARCHAR PRIMARY KEY,
-  pass_hash VARCHAR NOT NULL, 
   election_id VARCHAR NOT NULL,
+  pass_hash VARCHAR NOT NULL, 
   full_name VARCHAR NOT NULL,
   dob DATE NOT NULL,
   address VARCHAR NOT NULL,
   postcode VARCHAR NOT NULL,
-  finished_voting boolean NOT NULL
+  finished_voting BOOLEAN NOT NULL,
+  FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE
 );
 
 CREATE TABLE elections (
@@ -29,7 +29,11 @@ CREATE TABLE questions (
   question_id VARCHAR PRIMARY KEY,
   question_string VARCHAR NOT NULL,
   question_num INT NOT NULL,
-  max_answers INT NOT NULL
+  max_answers INT NOT NULL CONSTRAINT pos_answers CHECK (max_answers > 0),
+  tally_total BIGINT NOT NULL CONSTRAINT pos_tally CHECK (tally_total >= 0),
+  sum_total BIGINT NOT NULL CONSTRAINT pos_sum CHECK (sum_total >= 0),
+  generator_1 BIGINT NOT NULL,
+  generator_2 BIGINT NOT NULL,
 );
 
 CREATE TABLE ballots (
@@ -40,22 +44,15 @@ CREATE TABLE ballots (
   random_receipt INT NOT NULL,
   proof_wf INT NOT NULL,
   vote_secret INT,
-  random_secret INT
-);
-
-CREATE TABLE bulletins (
-  question_id VARCHAR PRIMARY KEY,
-  election_id VARCHAR NOT NULL,
-  tally_total BIGINT NOT NULL,
-  sum_total BIGINT NOT NULL,
-  generator_1 BIGINT NOT NULL,
-  generator_2 BIGINT NOT NULL
+  random_secret INT,
+  FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE
 );
 
 CREATE TABLE sessions (
   session_id VARCHAR PRIMARY KEY,
   voter_id VARCHAR NOT NULL,
-  current_question INT 
+  current_question INT,
+  FOREIGN KEY (voter_id) REFERENCES voters(voter_id) ON DELETE CASCADE
 );
 
 CREATE TABLE choices (
@@ -65,24 +62,19 @@ CREATE TABLE choices (
 );
 
 CREATE TABLE question_choices (
-  choice_id VARCHAR NOT NULL
-  question_id VARCHAR NOT NULL
-  PRIMARY KEY (choice_id, question_id)
+  choice_id VARCHAR NOT NULL,
+  question_id VARCHAR NOT NULL,
+  PRIMARY KEY (choice_id, question_id),
+  FOREIGN KEY (choice_id) REFERENCES choices(choice_id) ON DELETE CASCADE,
+  FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE
 );
 
 CREATE TABLE election_questions (
   election_id VARCHAR NOT NULL,
-  question_id VARCHAR NOT NULL
-  PRIMARY KEY (election_id, question_id)
+  question_id VARCHAR NOT NULL,
+  PRIMARY KEY (election_id, question_id),
+  FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE,
+  FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE
 );
 
-Ref: elections.election_id - voters.election_id
-Ref: elections.election_id < election_questions.election_id
-Ref: questions.question_id < election_questions.question_id
-Ref: elections.election_id < bulletins.election_id
-Ref: questions.question_id < question_choices.question_id
-Ref: choices.choice_id < question_choices.choice_id
-Ref: questions.question_id - bulletins.question_id
-Ref: questions.question_id < ballots.question_id
-Ref: sessions.voter_id - voters.voter_id
-Ref: sessions.current_question - questions.question_id
+CREATE TRIGGER AFTER DELETE ON elections
