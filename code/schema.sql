@@ -76,5 +76,3 @@ CREATE TABLE election_questions (
   FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE,
   FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE
 );
-
-CREATE TRIGGER AFTER DELETE ON elections
