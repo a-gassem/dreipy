@@ -32,8 +32,8 @@ CREATE TABLE questions (
   max_answers INT NOT NULL CONSTRAINT pos_answers CHECK (max_answers > 0),
   tally_total BIGINT NOT NULL CONSTRAINT pos_tally CHECK (tally_total >= 0),
   sum_total BIGINT NOT NULL CONSTRAINT pos_sum CHECK (sum_total >= 0),
-  generator_1 BIGINT NOT NULL,
-  generator_2 BIGINT NOT NULL,
+  generator_1 BIGINT NOT NULL CONSTRAINT pos_gen1 CHECK (generator_1 > 0),
+  generator_2 BIGINT NOT NULL CONSTRAINT pos_gen2 CHECK (generator_2 > 0)
 );
 
 CREATE TABLE ballots (
