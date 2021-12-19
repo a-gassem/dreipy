@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}View{% endblock %}
+{% block body %}
+<h1>View an Election</h1>
+
+<h2>Selected Election ID: {{ election.getElectionId() }}
+
+<h2>Start Time: {{ longTime(election.getStartTime()) }}</h2>
+<h2>End Time: {{ longTime(election.getEndTime()) }}</h2>
+
+{% endblock %}

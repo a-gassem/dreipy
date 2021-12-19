@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Create{% endblock %}
+{% block body %}
+<h1>Create an Election</h1>
+
+<p>To create an election there are a few things that you need to do:</p>
+<ol>
+    <li>Write the questions and answers.</li>
+    <li>Set the start and end dates for the election.</li>
+    <li>Upload an XML file containing the data for all the voters in the election.</li>
+</ol>
+
+The XML file is required so that the data for each voter can be added to the database with their name and email address to be used to distribute their login codes before the election.
+
+<h3>Start date and time (YYYY-MM-DD HH-mm-ss):</h3>
+<h3>End date and time (YYYY-MM-DD HH-mm-ss):</h3>
+
+<h3>Questionssssss</h3>
+
+<h3>Upload XML File:</h3>
+
+// we should have a "confirm" screen after a successful input where we convert the dates to long-form and show all the election questions
+
+{% endblock %}

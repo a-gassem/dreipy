@@ -1,4 +1,6 @@
-class Election:
+from Status import Status
+
+class Election():
     """This class is responsible for containing the general data for a specific
 election: its questions, the start/end times and ???
 
@@ -12,10 +14,17 @@ Attributes:
                                    where index i maps to the i-th Question object. 
 - sql_questions(list(4-tuples)) -- a list of tuples that are formatted to be used
                                    with Cursor.executemany() when inserting this
-                                   object into the database
+                                   object into the database.
+- status({PENDING, ONGOING, CLOSED}) -- an integer value
 
 Methods:
 
+Helpers:
+- getStatus(self) -- returns a Status: PENDING if now < self.start_time
+                                       ONGOING if now >= self.start_time
+                                           AND now < self.end_time
+                                       CLOSED  if now >= self.end_time
+                     where PENDING/ONGOING/CLOSED are enums in Status
 Getters:
 - getElectionId(self)   -- returns self.election_id
 - getQuestions(self)    -- returns self.questions
@@ -49,4 +58,8 @@ Getters:
 
     def getEndTime(self):
         return self.end_time
+
+    # Helpers
+    def getStatus(self):
+        #TODO
     
