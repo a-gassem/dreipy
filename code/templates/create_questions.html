@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Create{% endblock %}
+{% block body %}
+<h1>Create an Election</h1>
+
+<p>To create an election there are a few things that you need to do:</p>
+<ol>
+    <li>Set the start and end dates for the election.</li>
+    <li>Write the questions and answers.</li>
+    <li>Upload an XML file containing the data for all the voters in the election.</li>
+</ol>
+
+
+<h3>Enter the questions and choices for this election:</h3>
+<form action="" method="post">
+    {% for i in range(num_q) %}
+        <div class="question_def">
+            <p>Question {{ i+1 }}:</p>
+            <input type="hidden" id="q_num" name="q_num" value="{{ i }}">
+        
+            <label for="query">Question text:</label>
+            <input type="text" id="query" name="query"/>
+    
+            <label for="end_time">Choices:</label>
+            {% for j in range() %}
+            <input type="text" id="end_time" name="end_time"/>
+            
+            <label for="max_answers">Number of Choices:</label>
+            <select name="max_answers">
+                <option value=></option>
+            </select>
+        </div>
+    {% endfor %}
+    
+    <input type="submit" class="btn"/>
+</form>
+
+{% endblock %}

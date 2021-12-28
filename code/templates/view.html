@@ -3,9 +3,11 @@
 {% block body %}
 <h1>View an Election</h1>
 
-<h2>Selected Election ID: {{ election.getElectionId() }}
+<h2>Selected Election ID: {{ election.election_id }}
 
-<h2>Start Time: {{ longTime(election.getStartTime()) }}</h2>
-<h2>End Time: {{ longTime(election.getEndTime()) }}</h2>
+Election Status: {{ election.status.name }}
+
+<h2>Start Time: {{ longTime(election.start_time) }}</h2>
+<h2>End Time: {{ longTime(election.end_time)) }}</h2>
 
 {% endblock %}
