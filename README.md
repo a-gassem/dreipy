@@ -2,6 +2,8 @@
 Implementation of DRE-ip in Python
 
 # Installation
+Step 0: Download the source code 
+
 Step 1: Create a virtual environment for the dependencies here (assuming Python 3.7+)
 
 Windows:

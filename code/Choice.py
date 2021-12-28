@@ -10,19 +10,21 @@ Methods:
 Overridden:
 - __str__(self) -- returns self.text
 
-Getters:
-- getChoiceId(self)   -- returns self.choice_id
-- getChoiceText(self) -- returns self.text"""
+"""
 
-    def __init__(self, choice_id, text):
-        self.choice_id = choice_id
-        self.text = text
+    def __init__(self, choice_id: str, text: str):
+        self._choice_id = choice_id
+        self._text = text
+
+    @property
+    def choice_id(self) -> str:
+        return self._choice_id
+
+    @property
+    def text(self) -> str:
+        return self._text
 
     def __str__(self):
         return self.text
 
-    def getChoiceId(self):
-        return self.choice_id
 
-    def getChoiceText(self):
-        return self.text
