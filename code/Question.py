@@ -1,3 +1,6 @@
+from typing import List, Tuple
+from Choice import Choice
+
 class Question:
     """This class is responsible for storing the data needed to display a
 question in an election with its query and choices. It assumes that well-
@@ -5,48 +8,66 @@ formed input has been passed to the constructor so all data sanitisation
 should occur before an instance is created.
 
 Attributes:
-- question_id(str)           -- unique identifier string for this Question object
-- query(str)                 -- string representation of the question itself
-- max_answers(int)           -- the maximum number of answers that can be given for
-                                the question (default = 1)
-- choices(dict{int:Choice})  -- dictionary of answers for this Question,
-                                where the index of the choice maps to its object
-- sql_choices(list(3-tuple)) -- a list of tuples that are formatted to be used
-                                with Cursor.executemany() when inserting this
-                                object into the database
+- question_id -- unique identifier string for this Question object
+- query       -- string representation of the question itself
+- max_answers -- the maximum number of answers that can be given for the question
+- choices     -- list of Choices for this Question.
+- sql_choices -- list of tuples that formatted for use with
+                 Cursor.executemany() when inserting this object into the
+                 database.
+- num_choices -- the number of choices that are available for this Question.
+- is_multi    -- whether this Question allows for multiple choices or not.
 
 Methods:
 
-Overridden methods:
+Overridden:
 - __str__(self) -- returns self.query joined with each Choice on a newline
 
-Getters:
-- getQuestionId(self) -- returns self.question_id
-- getQuery(self)      -- returns self.query
-- getMaxAns(self)     -- returns self.max_answers
-- getChoices(self)    -- returns self.choices
-- getSqlChoices(self) -- returns self.sql_choices
-
 Helpers:
-- isMulti(self)             -- returns True iff self.max_answers > 1
-- getChoiceByIndex(self, i) -- returns the answer at self.choices[i]
-- getNumChoices(self)       -- returns the number of choices available for this
-                               question."""
+- getChoiceByIndex(self, i) -- returns the answer at self.choices[i]"""
 
-    def _makeChoiceTuples(choiceDict):
-        choiceList = []
-        for c_index, choice in choiceDict:
-            choiceList.append((choice.getChoiceId(), choice.getChoiceText(),
-                               c_index))
-        return choiceList
+    def _makeChoiceTuples(choiceList):
+        choiceTups = []
+        for i in range(len(choiceList)):
+            choiceTups.append((choiceList[i].choice_id, choiceList[i].text, i))
+        return choiceTups
     
-    # Constructor + getters
-    def __init__(self, newID, query, choices, max_answers=1):
-        self.question_id = newID
-        self.query = query
-        self.max_answers = max_answers
-        self.choices = choices
-        self.sql_choices = _makeChoiceTuples(choices)
+    # Constructor
+    def __init__(self, question_id: str, query: str, max_answers: int,
+                 choices: List[Choice]):
+        self._question_id = question_id
+        self._query = query
+        self._max_answers = max_answers
+        self._choices = choices
+        self._sql_choices = Question._makeChoiceTuples(choices)
+
+    @property
+    def question_id(self) -> str:
+        return self._question_id
+
+    @property
+    def query(self) -> str:
+        return self._query
+
+    @property
+    def max_answers(self) -> str:
+        return self._max_answers
+
+    @property
+    def choices(self) -> List[Choice]:
+        return self._choices
+
+    @property
+    def sql_choices(self) -> List[Tuple[str, str, int]]:
+        return self._sql_choices
+
+    @property
+    def num_choices(self) -> int:
+        return len(self.choices)
+
+    @property
+    def is_multi(self) -> bool:
+        return self.max_answers > 1
 
     def __str__(self):
         string = self.query
@@ -54,29 +75,10 @@ Helpers:
             string += f"\nChoice {index}: {str(choice)}"
         return string
 
-    def getQuestionId(self):
-        return self.question_id
-
-    def getQuery(self):
-        return self.query
-    
-    def getMaxAns(self):
-        return self.max_answers
-
-    def getChoices(self):
-        return self.choices
-
-    def getSqlChoices(self):
-        return self.sql_choices
-
     # Helpers
-    def isMulti(self):
-        return self.max_answers > 1
-
     def getChoiceById(self, index):
         return self.choices[index]
 
-    def getNumChoices(self):
-        return len(self.choices)
+    
         
     
