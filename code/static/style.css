@@ -1,3 +1,10 @@
 p {
     font-size: 20px;
 }
+.double {
+    width: 2ch;
+}
+
+.quad {
+    width: 4ch;
+}

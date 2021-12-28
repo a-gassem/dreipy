@@ -10,9 +10,10 @@ Windows:
 py -3 -m venv dreipy&
 dreipy\Scripts\activate&
 
-Step 2: Install dependencies (Flask, probs some cryptography libraries too)
+Step 2: Install dependencies (Flask, WTForms, probs some cryptography libraries too)
 
 pip install Flask&
+pip install flask-wtf&
 
 Step 3: Run the app (note that the venv is called dreipy)
 
