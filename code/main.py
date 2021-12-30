@@ -5,7 +5,7 @@ from Election import Election
 
 from datetime import datetime
 
-from forms import DateForm
+from forms import DateForm, QuestionForm, ElectionForm
 from werkzeug.datastructures import MultiDict
 
 main = Flask(__name__)
@@ -68,8 +68,11 @@ def create():
 
 @main.route("/create-questions")
 def createQuestions():
-    return render_template("create_questions.html", num_q=1, q_choices={1:2})
+    form = ElectionForm()
+    if (form.validate_on_submit()):
+        print("TEST")
+    return render_template("create_questions.html", form=form)
 
 @main.route("/view")
 def view(election):
-    return render_template("view.html", election=election)
+    return render_template("view.html")
