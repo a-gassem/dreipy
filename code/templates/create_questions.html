@@ -11,17 +11,24 @@
     <div id="election-box">
         {{ form.title.label() }}
         {{ form.title(placeholder="General Election 2024") }}
-        <div class="question-box">
-            {{ form.questions.query_1.label() }}
-            {{ form.questions.query_1(placeholder="Select your desired candidate.") }}
-            {{ form.questions.choices_1.label() }}
-            {{ form.questions.choices_1(placeholder="Candidate 1") }}
-            {{ form.questions.maxanswers_1.label() }}
-            {{ form.questions.maxanswers_1() }}
+        <div id="1" class="question-box">
+            {{ form.query_1.label() }}
+            {{ form.query_1(placeholder="Select your desired candidate.") }}
+            <div class="choice-box">
+                {{ form.choice_1_1.label() }}
+                {{ form.choice_1_1(placeholder="Candidate Name") }}
+            </div>
+            <div class="choice-box">
+                {{ form.choice_1_2.label() }}
+                {{ form.choice_1_2(placeholder="Candidate Name") }}
+            </div>
+            <button class="btn disabled delete-choice" type="button">DELETE</button>
+            <button class="btn new-choice" type="button">+</button>
+            {{ form.maxanswers_1.label() }}
+            {{ form.maxanswers_1() }}
         </div>
-
     </div>
-    <button id="delete-question" class="btn" type="button">DELETE</button>
+    <button id="delete-question" class="btn disabled" type="button">DELETE</button>
     <button id="new-question" class="btn" type="button">+</button>
     {{ form.submit() }}
 </form>

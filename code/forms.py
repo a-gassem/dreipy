@@ -1,6 +1,5 @@
 from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField, SelectField
-from wtforms.fields import FieldList, FormField
 from wtforms.validators import DataRequired, Email, ValidationError
 
 from helpers import parseTime
@@ -42,17 +41,11 @@ parseTime() function will disallow any empty inputs anyway."""
     
     submit = SubmitField("Next Page")
 
-class ChoiceForm(FlaskForm):
-    choices = FieldList(StringField("Choice:", [DataRequired()]), min_entries=2)
-
-class QuestionForm(FlaskForm):
-    query_1 = StringField("Question text:", [DataRequired()])
-    #choices = FormField(ChoiceForm)
-    choices_1 = StringField("Choice:", [DataRequired()])
-    maxanswers_1 = SelectField("Number of answers:",
-                              choices=[])
-
 class ElectionForm(FlaskForm):
     title = StringField("Election Title:", [DataRequired()])
-    questions = FormField(QuestionForm)
+    query_1 = StringField("Question text:", [DataRequired()])
+    choice_1_1 = StringField("Choice:", [DataRequired()])
+    choice_1_2 = StringField("Choice:", [DataRequired()])
+    maxanswers_1 = SelectField("Number of answers:",
+                              choices=[(1, 1)])
     submit = SubmitField("Next Page")
