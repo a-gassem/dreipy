@@ -71,8 +71,8 @@ Helpers:
 
     def __str__(self):
         string = self.query
-        for index, choice in self.choices:
-            string += f"\nChoice {index}: {str(choice)}"
+        for i in range(len(self.choices)):
+            string += f"\nChoice {i}: {str(self.choices[i])}"
         return string
 
     # Helpers

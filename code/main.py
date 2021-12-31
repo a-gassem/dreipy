@@ -1,12 +1,9 @@
-from flask import Flask, render_template, redirect, session, url_for
-from helpers import longTime, parseTime, mergeTime
-
-from Election import Election
-
+from flask import Flask, render_template, redirect, session, url_for, request
+from helpers import longTime, parseTime, mergeTime, makeID, parseForm
 from datetime import datetime
+from forms import DateForm, ElectionForm
 
-from forms import DateForm, QuestionForm, ElectionForm
-from werkzeug.datastructures import MultiDict
+from Election import parseElection
 
 main = Flask(__name__)
 
@@ -66,12 +63,32 @@ def create():
                 return redirect(url_for("createQuestions"))
     return render_template("create.html", form=form)
 
-@main.route("/create-questions")
+@main.route("/create-questions", methods=['GET', 'POST'])
 def createQuestions():
     form = ElectionForm()
-    if (form.validate_on_submit()):
-        print("TEST")
-    return render_template("create_questions.html", form=form)
+    errors = []
+    if (request.method == 'POST'):
+        print(request.form)
+        
+        # TODO: make it so that after a POST, if the request fails, the form
+        # on the webpage maintains the choices, questions etc.
+        electionDict, errors = parseForm(request.form)
+        if not errors:
+            # Now that we've parsed the unordered form response into a dictionary
+            # that makes more sense, parse it all into an Election object
+            election = parseElection(electionDict, session['start_time'],
+                                     session['end_time'])
+            print(election)
+            if not election is None:
+                #session['new_election'] = election
+                # needs to be JSON serialisable??
+                return redirect(url_for('voterUpload'))
+            errors.append("Something went wrong when parsing the form data.")
+    return render_template("create_questions.html", form=form, errors=errors)
+
+@main.route("/create-voters", methods=['GET', 'POST'])
+def voterUpload():
+    return render_template("create_voters.html")
 
 @main.route("/view")
 def view(election):
