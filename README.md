@@ -10,10 +10,9 @@ Windows:
 py -3 -m venv dreipy&
 dreipy\Scripts\activate&
 
-Step 2: Install dependencies (Flask, WTForms, probs some cryptography libraries too)
+Step 2: Install dependencies (Flask, WTForms, jsonpickle, probs some cryptography libraries too)
 
-pip install Flask&
-pip install flask-wtf&
+pip install -U Flask flask-wtf jsonpickle pyIsEmail&
 
 Step 3: Run the app (note that the venv is called dreipy)
 

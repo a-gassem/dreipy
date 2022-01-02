@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Confirm{% endblock %}
+{% block body %}
+<h1>Create an Election</h1>
+
+<h3>Confirm details:</h3>
+<div id="details">
+    <h4>Start date/time: {{ longTime(election.start_time) }}</h4>
+    <h4>End date/time: {{ longTime(election.end_time }}</h4>
+    
+    <h4>ID: {{ election.election_id }}</h4>
+    <h4>Title: {{ election.title }}</h4>
+    
+    {% for i in range(len(questions)) %}
+        <div class="confirm-question">
+            <h5>Question {{ i }}: {{ questions[i].query }}</h5>
+            <h5>Number of choices: {{ questions[i].max_answers }}</h5>
+            <div class="confirm-choice">
+                <ol>
+                {% for j in range(len(questions[i].choices)) %}
+                    <li>{{ questions[i].choices[j].text }}</li>
+                {% endfor %}     
+                </ol>
+            </div>
+        </div>
+    {% endfor %}
+    
+    {% for line in samples %}
+        <div class="confirm-voter">
+        </div>
+    {% endfor %}
+    <div class="row">
+        <button onclick="window.location.href='{{ url_for('create') }}'" class="btn" type="button">Back</button>
+        <form action="" method="post">
+            {{ form.submit() }}
+        </form>
+    </div>
+</div>
+
+{% endblock %}

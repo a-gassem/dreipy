@@ -1,15 +1,25 @@
 from flask import Flask, render_template, redirect, session, url_for, request
-from helpers import longTime, parseTime, mergeTime, makeID, parseForm
+from helpers import longTime, parseTime, mergeTime, makeID, clearSession, checkCsv
 from datetime import datetime
-from forms import DateForm, ElectionForm
-
-from Election import parseElection
+from forms import ElectionForm, validateDates, validateQuestions, validateUpload
+import jsonpickle
+import os
 
 main = Flask(__name__)
 
+UPLOAD_FOLDER = "uploads/"
+# maximum size of the uploaded CSV file (MiB)
+MAX_FILE_SIZE_LIMIT = 5
+# maximum length of the uploaded CSV filename (number of characters)
+MAX_FILENAME_LENGTH = 50
+
 # make sure we securely generate these -- maybe environment variable?
-main.config["SECRET_KEY"] = "TODO"
 main.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+main.config["SECRET_KEY"] = "TODO"
+
+main.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+main.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE_LIMIT * 1024 * 1024
+
 
 # TODO: we need to log ALL THE THINGS!
 
@@ -18,78 +28,128 @@ def not_found(error):
     print(error)
     return render_template("not_found.html", error=error)
 
+@main.errorhandler(413)
+def file_too_large(error):
+    print(error)
+    session["errors"] = [f"You tried to upload a file that was too large. Please\
+ only upload files with size up to {MAX_FILE_SIZE_LIMIT}MiB."]
+    return redirect(url_for("create"))
+
 @main.route("/")
 def splash():
+    # clear any session variables that we should not keep for this page
+    clearSession(session, ['new_election', 'start_time', 'end_time',
+                           'delim', 'filename'])
+    session['errors'] = []
     return render_template("splash.html")
 
 @main.route("/about")
 def about():
+    clearSession(session, ['new_election', 'start_time', 'end_time',
+                           'delim', 'filename'])
+    session['errors'] = []
     return render_template("faq.html")
 
 @main.route("/vote")
 def vote():
-    return render_template("vote.html")
+    clearSession(session, ['new_election', 'start_time', 'end_time',
+                           'delim', 'filename'])
+    # copy the session errors into a local variable, then clear the session
+    # errors so that they do not continue to future requests
+    errors = session['errors']
+    session['errors'] = []
+    return render_template("vote.html", errors=errors)
 
 @main.route("/create", methods=['GET', 'POST'])
 def create():
-    form = DateForm()
-    # Note form.validate_on_submit() returns True iff:
-    # 1. It was a POST request.
-    # 2. The data is valid.
-    # ==> GET requests and invalid inputs don't change the page.
-    if (form.validate_on_submit()):
-        start_time = parseTime(mergeTime(form.start_year.data, form.start_month.data,
-                               form.start_day.data, form.start_hour.data,
-                               form.start_mins.data, form.start_secs.data))
-        end_time = parseTime(mergeTime(form.end_year.data, form.end_month.data,
-                             form.end_day.data, form.end_hour.data,
-                             form.start_mins.data, form.start_secs.data))
-
-        if (start_time is None):
-            form.form_errors.append("Badly formatted start date/time (are any fields empty?).")
-        if (end_time is None):
-            form.form_errors.append("Badly formatted end date/time (are any fields empty?).")
-
-        if ((not start_time is None) and (not end_time is None)):
-            if (start_time <= datetime.now()):
-                form.form_errors.append("Please input a start date/time after the present.")
-            if (end_time <= datetime.now()):
-                form.form_errors.append("Please input an end date/time after the present.")
-            if (start_time >= end_time):
-                form.form_errors.append("Please input a time after the chosen start time.")
-            if not form.errors:
-                session['start_time'] = start_time
-                session['end_time'] = end_time
-                return redirect(url_for("createQuestions"))
-    return render_template("create.html", form=form)
-
-@main.route("/create-questions", methods=['GET', 'POST'])
-def createQuestions():
+    clearSession(session, ['new_election', 'start_time', 'end_time',
+                           'delim', 'filename'])
     form = ElectionForm()
-    errors = []
-    if (request.method == 'POST'):
-        print(request.form)
-        
-        # TODO: make it so that after a POST, if the request fails, the form
-        # on the webpage maintains the choices, questions etc.
-        electionDict, errors = parseForm(request.form)
-        if not errors:
-            # Now that we've parsed the unordered form response into a dictionary
-            # that makes more sense, parse it all into an Election object
-            election = parseElection(electionDict, session['start_time'],
-                                     session['end_time'])
-            print(election)
-            if not election is None:
-                #session['new_election'] = election
-                # needs to be JSON serialisable??
-                return redirect(url_for('voterUpload'))
-            errors.append("Something went wrong when parsing the form data.")
-    return render_template("create_questions.html", form=form, errors=errors)
+    errors = session['errors']
+    session['errors'] = []
+    if ((not errors) and (request.method == 'POST')):
+        form = request.form
+        # validate the date part of the form
+        start_time, end_time, dateErrors = validateDates(form)        
+        if not dateErrors:
+            # validate the question part of the form
+            election, questionErrors = validateQuestions(form, start_time,
+                                                         end_time)            
+            if not questionErrors:
+                filepath, delim, uploadErrors = validateUpload(form, request.files,
+                                                               MAX_FILENAME_LENGTH,
+                                                               main.config["UPLOAD_FOLDER"])
+                if not uploadErrors:
+                    # go to the confirm page after assigning values to session
+                    session['start_time'] = start_time
+                    session['end_time'] = end_time
+                    session['new_election'] = jsonpickle.encode(election)
+                    session['delim'] = delim
+                    session['filename'] = filepath
+                    return redirect(url_for("parseFile"))
+                else:
+                    errors += uploadErrors
+            else:
+                errors += questionErrors
+        else:
+            errors += dateErrors
+    return render_template("create.html", form=form, errors=errors)
 
-@main.route("/create-voters", methods=['GET', 'POST'])
-def voterUpload():
-    return render_template("create_voters.html")
+@main.route("/parse-file", methods=["GET"])
+def parseFile():
+    # ensure the user has filled out the form properly
+    if ((not 'start_time' in session) or (not 'end_time' in session)):
+        session['errors'].append("Election incomplete, ensure that the \
+start and end times have been defined before trying to parse the CSV file.")
+        return redirect(url_for("create"))
+    if (not 'new_election' in session):
+        session['errors'].append("Election incomplete, ensure that its \
+questions have been defined before trying to parse the CSV file.")
+        return redirect(url_for("create"))
+    if ((not 'delim' in session) or (not 'filename' in session)):
+        session['errors'].append("Election incomplete, ensure that you \
+have uploaded the voter CSV file before trying to parse the CSV file.")
+        return redirect(url_for("create"))
 
-@main.route("/view")
-def view(election):
+    sample, errors = checkCsv(session['filename'], session['delimiter'])
+    if not errors:
+        session['sample'] = sample
+        return redirect(url_for("confirmElection"))
+    
+
+# TODO: make it so that after a POST, if the request fails, the form
+# on the webpage maintains the choices, questions etc. ALSO display the errors
+# lmao
+@main.route("/confirm-election", methods=["GET", "POST"])
+def confirmElection():
+    samples = session.pop('sample', None)
+    session['errors'] = []
+    
+    # ensure the user has filled out the form properly
+    if ((not 'start_time' in session) or (not 'end_time' in session)):
+        session['errors'].append("Election incomplete, ensure that the \
+start and end times have been defined before trying to confirm it.")
+        return redirect(url_for("create"))
+    if (not 'new_election' in session):
+        session['errors'].append("Election incomplete, ensure that its \
+questions have been defined before trying to confirm it.")
+        return redirect(url_for("create"))
+    if ((not 'delim' in session) or (not 'filename' in session)):
+        session['errors'].append("Election incomplete, ensure that you \
+have uploaded the voter CSV file before trying to confirm it.")
+        return redirect(url_for("create"))
+    if (not 'sample' in session):
+        session['errors'].append("Voter file not parsed, ensure that you \
+have uploaded a valid voter CSV file before trying to confirm the election.")
+        return redirect(url_for("create"))
+    election = jsonpickle.decode['new_election']
+    sample = []
+    return render_template("confirm_election.html", election=election,
+                           questions=election.questions, samples=samples)
+
+@main.route("/view", methods=["GET"])
+def view():
+    clearSession(session, ['new_election', 'start_time', 'end_time',
+                           'delim', 'filename'])
+    session['errors'] = []
     return render_template("view.html")

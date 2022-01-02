@@ -76,7 +76,7 @@ Methods:
         return Status.CLOSED
 
     def __str__(self):
-        string = f"Election ID: {self.election_id}\n
+        string = f"Election ID: {self.election_id}\n"
         string += f"Title: {self.title}\n\n"
         string += f"Starts: {longTime(self.start_time)}\n"
         string += f"Ends: {longTime(self.end_time)}\n"

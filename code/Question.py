@@ -22,9 +22,7 @@ Methods:
 
 Overridden:
 - __str__(self) -- returns self.query joined with each Choice on a newline
-
-Helpers:
-- getChoiceByIndex(self, i) -- returns the answer at self.choices[i]"""
+"""
 
     def _makeChoiceTuples(choiceList):
         choiceTups = []
@@ -74,10 +72,6 @@ Helpers:
         for i in range(len(self.choices)):
             string += f"\nChoice {i}: {str(self.choices[i])}"
         return string
-
-    # Helpers
-    def getChoiceById(self, index):
-        return self.choices[index]
 
     
         

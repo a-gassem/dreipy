@@ -1,12 +1,39 @@
+from pyisemail import is_email
+from pyisemail.diagnosis import InvalidDiagnosis, ValidDiagnosis
+
 from uuid import uuid4
 from datetime import datetime
-import re
 from typing import Union, Dict, Any, Tuple, List, Generic
-
-from Choice import Choice
+import csv
 
 LONG_FORMAT = "%A %d %B %Y %I:%M:%S%p"
+DOB_FORMAT = "%d-%m-%Y"
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+CSV_HEADERS = sorted(['fname', 'lname', 'postcode', 'email', 'dob'])
+
+# maximum size of our sample from the CSV
+SAMPLE_SIZE = 5
+
+# these are the max lengths for first and last names
+FNAME_MAX_LENGTH = 35
+LNAME_MAX_LENGTH = 35
+POSTCODE_LENGTH = 8
+
+# Code for these case insensitive classes used from
+# https://www.pythonpool.com/python-csv-dictreader/
+class InsensitiveDict(dict):
+    def __getitem__(self, key):
+        return dict.__getitem__(self, key.strip().lower())
+
+class InsensitiveDictReader(csv.DictReader):
+    @property
+    def fieldnames(self):
+        return [field.strip().lower() for field in
+                csv.DictReader.fieldnames.fget(self)]
+
+    def next(self):
+        return InsensitiveDict(csv.DictReader.next(self))
 
 def makeID() -> str:
     """Generates a random, unique ID by making a UUID 4, converting to hex and
@@ -31,70 +58,84 @@ def mergeTime(year: str, month: str, day: str, hour: str, mins: str,
               secs: str) -> str:
     return f"{year}-{month}-{day} {hour}:{mins}:{secs}" 
 
-def parseForm(respForm: Generic) -> Tuple[Dict, List]:
+def clearSession(session: Dict, keys: List[str]) -> None:
+    """Given a Flask session and some keys, pop all those keys if they exist.
+Useful for when we want to clear out session data when a user is redirected."""
+    for key in keys:
+        session.pop(key, None)
+
+def isCsv(filename: str) -> bool:
+    """Takes a filename *that has been passed through the secure_filename()
+function* and then does some simple checks to see if it is indeed a CSV file."""
+    parts = filename.split('.')
+    if (len(parts) != 2):
+        return False
+    return parts[1].lower() == 'csv'
+    
+def newFilename() -> str:
+    """Generates a random, new filename for the voter CSV file for us to save
+it as."""
+    return f"{makeID()}.csv"
+
+def checkCsv(filepath: str, delimiter: str) \
+    -> Tuple[Union[List, None], List[str]]:
+    """Does some basic checks on an input CSV file. We do not exhaustively
+check for things like valid email addresses, valid postcodes and so on -- it
+is the responsibility of the person creating the election to gather the details
+of voters and store them correctly before passing them to DRE-ipy. That being
+said we do flag email addresses that are likely to be incorrect, check for
+duplicate email addresses and have set an upper limit on the length of names
+and postcodes."""
     errors = []
-    questions = {}
-    title = None
-    # We cannot know the order of the response, we also do not know how many
-    # questions and choices there will be, so we need to use regex to figure
-    # out what to do.
-    try:
-        for id, value in respForm.items():
-            id = str(id)
-            if (id == 'title'):
-                if title is None:
-                    title = str(value)
-                    continue
-                else:
-                    errors.append("Multiple titles given for this election, please \
-only pass one.")
-                    continue
-            elif (id == 'submit'):
-                continue
-            qMatch = re.match('^query_([0-9]+)$', id, re.IGNORECASE)
-            cMatch = re.match('^choice_([0-9]+)_([0-9]+)$', id, re.IGNORECASE)
-            mMatch = re.match('^maxanswers_([0-9]+)$', id, re.IGNORECASE)
-            if qMatch:
-                questionNum = int(qMatch.group(1))
-                if questionNum in questions:
-                    if 'query' in questions[questionNum]:
-                        errors.append(f"Multiple query text entries found \
-for question {questionNum}")
-                    else:
-                        questions[questionNum]['query'] = str(value)
-                else:
-                    questions[questionNum] = {'query':str(value)}
-            elif cMatch:
-                questionNum = int(cMatch.group(1))
-                choiceNum = int(cMatch.group(2))
-                newChoice = Choice(makeID(), str(value))
-                if questionNum in questions:
-                    if 'choices' in questions[questionNum]:
-                        if choiceNum in questions[questionNum]['choices']:
-                            errors.append(f"Multiple entries found for choice number \
-{choiceNum} in question {questionNum}")
-                        else:
-                            questions[questionNum]['choices'][choiceNum] = newChoice
-                    else:
-                        questions[questionNum]['choices'] = {choiceNum:newChoice}
-                else:
-                    questions[questionNum] = {f'choice_{choiceNum}':newChoice}
-            elif mMatch:
-                questionNum = int(mMatch.group(1))
-                if questionNum in questions:
-                    if 'maxanswers' in questions[questionNum]:
-                        errors.append("Multiple entries found for number of choices\
- in question {questionNum}.")
-                    else:
-                        questions[questionNum]['maxanswers'] = int(value)
-                else:
-                    questions[questionNum] = {'maxanswers':int(value)}
+    voters = []
+    emails = {'warn':[]}
+    badEmails = []
+    with open(filepath, 'r', newline='') as f:
+        reader = InsensitiveDictReader(f, delimiter=delimiter)
+        if sorted(reader.fieldnames) != CSV_HEADERS:
+            errors.append("Mismatch in CSV file headers. Did you pass the \
+correct delimiter? Did you spell one of your headers wrong?")
+            return None, errors
+        for row in reader:
+            # extra data gets put under the None key in the dict -- we don't
+            # want this!
+            if None in row:
+                errors.append("Found a row with more data than fields specified\
+. Please ensure that each row has exactly 1 entry for each header.")
+                return None, errors
+            # DoB checks
+            try:
+                row['dob'] = datetime.strptime(row['dob'], DOB_FORMAT)
+            except ValueError:
+                errors.append("Found a row with a badly-formed date of birth. \
+Please ensure that each date of birth is in the form DD-MM-YYYY.")
+                return None, errors
+            # email checks
+            email = row['email']
+            if email in emails:
+                errors.append(f"Found a duplicate email address: {email}\
+. Please ensure that each email address is unique in the CSV file.")
+                return None, errors
+            diagnosis = is_email(email, diagnosis=True)
+            if isinstance(diagnosis, InvalidDiagnosis):
+                badEmails.append(email)
+            elif isinstance(diagnosis, ValidDiagnosis):
+                emails[email] = ''
             else:
-                errors.append(f"Badly formed form element: {id}, {value}")
-    except ValueError:
-        errors.append("Invalid type encountered when parsing the form - please check\
- that all values are of the correct type and try again.")
+                # if not Valid or Invalid, then it's ambiguous and we should
+                # simply warn the user about the email address
+                emails['warn'].append(email)
+            # length checks on other fields - truncate long names rather than
+            # reject outright for maximum accessibility
+            if row['fname'] > FNAME_MAX_LENGTH:
+                row['fname'] = row['fname'][:FNAME_MAX_LENGTH]
+            if row['lname'] > LNAME_MAX_LENGTH:
+                row['lname'] = row['lname'][:FNAME_MAX_LENGTH]
+            
+            if len(voters) < SAMPLE_SIZE:
+                voters.append(row)
+    if badEmails:
+        errors.append(f"Invalid email address(es) found: {badEmails}. \
+Please ensure that all invalid email addresses are removed from the CSV file.")
         return None, errors
-    if title is None:
-        errors.append("Please enter a title for this election.")
-    return {'questions':questions, 'title':title}, errors
+    return voters, errors
