@@ -1,6 +1,8 @@
 from pyisemail import is_email
 from pyisemail.diagnosis import InvalidDiagnosis, ValidDiagnosis
 
+from Voter import Voter
+
 from uuid import uuid4
 from datetime import datetime
 from typing import Union, Dict, Any, Tuple, List, Generic
@@ -18,7 +20,7 @@ SAMPLE_SIZE = 5
 # these are the max lengths for first and last names
 FNAME_MAX_LENGTH = 35
 LNAME_MAX_LENGTH = 35
-POSTCODE_LENGTH = 8
+POSTCODE_MAX_LENGTH = 8
 
 # Code for these case insensitive classes used from
 # https://www.pythonpool.com/python-csv-dictreader/
@@ -58,11 +60,16 @@ def mergeTime(year: str, month: str, day: str, hour: str, mins: str,
               secs: str) -> str:
     return f"{year}-{month}-{day} {hour}:{mins}:{secs}" 
 
-def clearSession(session: Dict, keys: List[str]) -> None:
+def clearSession(session: Dict, keys=[]: List[str]) -> None:
     """Given a Flask session and some keys, pop all those keys if they exist.
-Useful for when we want to clear out session data when a user is redirected."""
-    for key in keys:
-        session.pop(key, None)
+Useful for when we want to clear out session data when a user is redirected.
+If no keys are passed (or the list is empty), then all keys are popped."""
+    if not keys:
+        for key, val in session.items():
+            session.pop(key, None)
+    else:
+        for key in keys:
+            session.pop(key, None)
 
 def isCsv(filename: str) -> bool:
     """Takes a filename *that has been passed through the secure_filename()
@@ -78,7 +85,7 @@ it as."""
     return f"{makeID()}.csv"
 
 def checkCsv(filepath: str, delimiter: str) \
-    -> Tuple[Union[List, None], List[str]]:
+    -> Tuple[Union[List, None], Union[List, None], List[str]]:
     """Does some basic checks on an input CSV file. We do not exhaustively
 check for things like valid email addresses, valid postcodes and so on -- it
 is the responsibility of the person creating the election to gather the details
@@ -95,28 +102,28 @@ and postcodes."""
         if sorted(reader.fieldnames) != CSV_HEADERS:
             errors.append("Mismatch in CSV file headers. Did you pass the \
 correct delimiter? Did you spell one of your headers wrong?")
-            return None, errors
+            return None, emails['warn'], errors
         for row in reader:
             # extra data gets put under the None key in the dict -- we don't
             # want this!
             if None in row:
                 errors.append("Found a row with more data than fields specified\
 . Please ensure that each row has exactly 1 entry for each header.")
-                return None, errors
+                return None, emails['warn'], errors
             # DoB checks
             try:
                 row['dob'] = datetime.strptime(row['dob'], DOB_FORMAT)
             except ValueError:
                 errors.append("Found a row with a badly-formed date of birth. \
 Please ensure that each date of birth is in the form DD-MM-YYYY.")
-                return None, errors
+                return None, None, errors
             # email checks
             email = row['email']
             if email in emails:
                 errors.append(f"Found a duplicate email address: {email}\
 . Please ensure that each email address is unique in the CSV file.")
-                return None, errors
-            diagnosis = is_email(email, diagnosis=True)
+                return None, None, errors
+            diagnosis = is_email(email, diagnose=True)
             if isinstance(diagnosis, InvalidDiagnosis):
                 badEmails.append(email)
             elif isinstance(diagnosis, ValidDiagnosis):
@@ -127,15 +134,33 @@ Please ensure that each date of birth is in the form DD-MM-YYYY.")
                 emails['warn'].append(email)
             # length checks on other fields - truncate long names rather than
             # reject outright for maximum accessibility
-            if row['fname'] > FNAME_MAX_LENGTH:
-                row['fname'] = row['fname'][:FNAME_MAX_LENGTH]
-            if row['lname'] > LNAME_MAX_LENGTH:
-                row['lname'] = row['lname'][:FNAME_MAX_LENGTH]
-            
+            row['fname'] = row['fname'][:FNAME_MAX_LENGTH]
+            row['lname'] = row['lname'][:LNAME_MAX_LENGTH]
+            row['postcode'] = row['postcode'][:POSTCODE_MAX_LENGTH]
+            if not row['fname'] or not row['lname'] or not row['postcode']:
+                errors.append("Empty field found in CSV file. Please make sure\
+ that all fields are filled out with the appropriate data.")
+                return None, None, errors
             if len(voters) < SAMPLE_SIZE:
                 voters.append(row)
     if badEmails:
         errors.append(f"Invalid email address(es) found: {badEmails}. \
 Please ensure that all invalid email addresses are removed from the CSV file.")
-        return None, errors
-    return voters, errors
+        return None, None, errors
+    return voters, emails['warn'], errors
+
+def _getVoters(election_id: str, filepath: str, delimiter: str):
+    """Takes a path to a validated CSV file and returns a list of Voters whose
+details are stored in the file"""
+    voters = []
+    with open(filepath, 'r', newline='') as f:
+        reader = InsensitiveDictReader(f, delimiter=delimiter)
+        for voter in reader:
+            fname = voter['fname'][:FNAME_MAX_LENGTH]
+            lname = voter['lname'][:LNAME_MAX_LENGTH]
+            postcode = voter['postcode'][:POSTCODE_MAX_LENGTH]
+            email = voter['email']
+            dob = voter['dob'].datetime.strptime(row['dob'], DOB_FORMAT)
+            voters.append(Voter(makeID(), election_id, fname, lname, postcode,
+                                email, dob))
+    return voters

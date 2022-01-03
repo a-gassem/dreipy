@@ -2,6 +2,7 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField, SelectField, FileField
 from wtforms.validators import DataRequired, Email, ValidationError
 from werkzeug.utils import secure_filename
+from flask import current_app
 
 from helpers import parseTime, mergeTime, makeID, newFilename, isCsv
 from Election import Election, parseElection
@@ -178,7 +179,8 @@ your CSV file.")
         # note we save the file with a filename we generate
         # ourselves and put it in session so we can refer back
         # to it on the next page
-        filepath = os.path.join(UPLOAD_FOLDER, newFilename())
+        filepath = os.path.join(current_app.config["UPLOAD_FOLDER"],
+                                newFilename())
         delim = form['delimiter']
-        file.save(filepath))
+        file.save(filepath)
     return filepath, delim, errors
