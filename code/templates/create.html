@@ -13,7 +13,7 @@
 </ol>
 
 
-<h3>When is the election happening?</h3>
+
 <form enctype="multipart/form-data" action="" method="post">
     <div>
         {{ form.csrf_token }}
@@ -21,6 +21,8 @@
     {% for error in errors %}
         <div class="error">{{ error }}</div>
     {% endfor %}
+    
+    <h3>When is the election happening?</h3>
     <div class="row date">
         {{ form.start_year.label() }}
         {{ form.start_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.start_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.start_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.start_hour(maxlength="2", class_="double", placeholder="HH") }}:{{ form.start_mins(maxlength="2", class_="double", placeholder="mm") }}:{{ form.start_secs(maxlength="2", class_="double", placeholder="ss") }}
@@ -29,6 +31,7 @@
         {{ form.end_year.label() }}
         {{ form.end_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.end_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.end_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.end_hour(maxlength="2", class_="double", placeholder="HH") }}:{{ form.end_mins(maxlength="2", class_="double", placeholder="mm") }}:{{ form.end_secs(maxlength="2", class_="double", placeholder="ss") }}
     </div>
+    <h3>What are the questions?</h3>
     <div id="election-box">
         {{ form.title.label() }}
         {{ form.title(placeholder="General Election 2024") }}
@@ -51,6 +54,8 @@
     </div>
     <button id="delete-question" class="btn disabled" type="button">DELETE</button>
     <button id="new-question" class="btn" type="button">+</button>
+    
+    <h3>Who can vote in it?</h3>
     <div id="file-upload">
         {{ form.file.label() }}
         {{ form.file() }}
@@ -59,7 +64,6 @@
     </div>
     <div class="btn">{{ form.submit() }}</div>
 </form>
-// we should have a "confirm" screen after a successful input where we convert the dates to long-form and show all the election questions
 
 The XML file is required so that the data for each voter can be added to the database with their name and email address to be used to distribute their login codes before the election.
 
