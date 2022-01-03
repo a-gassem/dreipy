@@ -11,18 +11,18 @@ CREATE TABLE voters (
   voter_id VARCHAR PRIMARY KEY,
   election_id VARCHAR NOT NULL,
   pass_hash VARCHAR NOT NULL, 
-  full_name VARCHAR NOT NULL,
+  full_name VARCHAR(71) NOT NULL,
   dob DATE NOT NULL,
-  address VARCHAR NOT NULL,
-  postcode VARCHAR NOT NULL,
+  postcode VARCHAR(8) NOT NULL,
   finished_voting BOOLEAN NOT NULL,
   FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE
 );
 
 CREATE TABLE elections (
   election_id VARCHAR PRIMARY KEY,
-  start_time datetime NOT NULL,
-  end_time datetime NOT NULL
+  title VARCHAR NOT NULL,
+  start_time DATETIME NOT NULL,
+  end_time DATETIME NOT NULL
 );
 
 CREATE TABLE questions (
