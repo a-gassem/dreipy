@@ -1,5 +1,4 @@
 from typing import List, Tuple
-from Choice import Choice
 
 class Question:
     """This class is responsible for storing the data needed to display a
@@ -23,21 +22,16 @@ Methods:
 Overridden:
 - __str__(self) -- returns self.query joined with each Choice on a newline
 """
-
-    def _makeChoiceTuples(choiceList):
-        choiceTups = []
-        for i in range(len(choiceList)):
-            choiceTups.append((choiceList[i].choice_id, choiceList[i].text, i))
-        return choiceTups
     
     # Constructor
     def __init__(self, question_id: str, query: str, max_answers: int,
-                 choices: List[Choice]):
+                 choices: List[str]):
         self._question_id = question_id
         self._query = query
         self._max_answers = max_answers
         self._choices = choices
-        self._sql_choices = Question._makeChoiceTuples(choices)
+        self._sql_choices = [(question_id, i, choices[i]) \
+                             for i in range(len(choices))]
 
     @property
     def question_id(self) -> str:
@@ -52,11 +46,11 @@ Overridden:
         return self._max_answers
 
     @property
-    def choices(self) -> List[Choice]:
+    def choices(self) -> List[str]:
         return self._choices
 
     @property
-    def sql_choices(self) -> List[Tuple[str, str, int]]:
+    def sql_choices(self) -> List[Tuple[str, int, str]]:
         return self._sql_choices
 
     @property

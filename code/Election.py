@@ -2,7 +2,6 @@ from typing import List, Tuple, Dict
 from Question import Question
 from Status import Status
 from datetime import datetime
-from helpers import longTime, makeID
 
 class Election():
     """This class is responsible for containing the general data for a specific
@@ -24,12 +23,19 @@ Attributes:
 Methods:
 """
     
-    def _makeQuestionTuples(questionList):
+    def makeQuestionTuples(questionList) -> List[Tuple[str, str, int, int]]:
+        """Returns a list of SQL friendly tuples for all the Questions in the
+Election, i.e: (question_id, query, index, num_answers)"""
         questionTups = []
         for i in range(len(questionList)):
             questionTups.append((questionList[i].question_id, questionList[i].query, i,
                                  questionList[i].max_answers))
         return questionTups
+
+    def longTime(time_obj: datetime) -> str:
+        """Returns the given datetime object as a long-form, user-friendly string.
+E.g: Wednesday 30 March 2022 10:45:30AM"""
+        return time_obj.strftime("%A %d %B %Y %I:%M:%S%p")
 
     def __init__(self, election_id: str, title: str,questions: List[Question],
                  start_time: datetime, end_time: datetime):
@@ -38,7 +44,7 @@ Methods:
         self._questions = questions
         self._start_time = start_time
         self._end_time = end_time
-        self._sql_questions = Election._makeQuestionTuples(questions)
+        self._sql_questions = Election.makeQuestionTuples(questions)
 
     @property
     def election_id(self) -> str:
@@ -57,8 +63,16 @@ Methods:
         return self._start_time
 
     @property
+    def str_start_time(self) -> str:
+        return Election.longTime(self.start_time)
+
+    @property
     def end_time(self) -> datetime:
         return self._end_time
+
+    @property
+    def str_end_time(self) -> str:
+        return Election.longTime(self.end_time)
 
     @property
     def sql_questions(self) -> List[Tuple[str, str, int, int]]:
@@ -78,30 +92,9 @@ Methods:
     def __str__(self):
         string = f"Election ID: {self.election_id}\n"
         string += f"Title: {self.title}\n\n"
-        string += f"Starts: {longTime(self.start_time)}\n"
-        string += f"Ends: {longTime(self.end_time)}\n"
+        string += f"Starts: {self.str_start_time}\n"
+        string += f"Ends: {self.str_end_time}\n"
         string += f"Status: {self.status.name}\n"
         for i in range(len(self.questions)):
             string += f"\nQuestion {i}: {str(self.questions[i])}\n"
         return string
-
-# bazinga
-def parseElection(electionDict: Dict, start_time: datetime,
-              end_time: datetime) -> Election:
-    questionObjs = []
-    questions = electionDict['questions']
-    # note that we sort all our dictionaries to ensure that we get the correct
-    # ordering of our lists when we iterate through them
-    try:
-        for questionNum, qDict in sorted(questions.items()):
-            choiceObjs = []
-            for choiceNum, choice in sorted(qDict['choices'].items()):
-                choiceObjs.append(choice)
-            questionObjs.append(Question(makeID(), qDict['query'],
-                                         qDict['maxanswers'], choiceObjs))
-        return Election(makeID(), electionDict['title'], questionObjs,
-                        start_time, end_time)
-    except Exception as e:
-        # there shouldn't be any errors, but print to console just in case
-        print(e)
-        return None
