@@ -5,8 +5,8 @@
 
 <h3>Confirm details:</h3>
 <div id="details">
-    <h4>Start date/time: {{ start }}</h4>
-    <h4>End date/time: {{ end }}</h4>
+    <h4>Start date/time: {{ election.str_start_time }}</h4>
+    <h4>End date/time: {{ election.str_end_time }}</h4>
     
     <h4>ID: {{ election.election_id }}</h4>
     <h4>Title: {{ election.title }}</h4>
@@ -18,7 +18,7 @@
             <div class="confirm-choice">
                 <ol>
                 {% for choice in question.choices %}
-                    <li>{{ choice.text }}</li>
+                    <li>{{ choice }}</li>
                 {% endfor %}     
                 </ol>
             </div>

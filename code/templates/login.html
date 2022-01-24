@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block body %}
+<h1>Logging into Election ID: {{ election_id }}</h1>
+
+{% for error in errors %}
+    <div class="error">
+        <p>{{ error }}</p>
+    </div>
+{% endfor %}
+
+<h3>Please enter your details to vote in this election</h3>
+<form action="" method="post">
+    {{ form.email.label() }}
+    {{ form.email() }}
+    
+    {{ form.code.label() }}
+    {{ form.code() }}
+    
+    {{ form.submit() }}
+</form>
+
+{% endblock %}

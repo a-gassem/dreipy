@@ -1,13 +1,40 @@
 {% extends "base.html" %}
 {% block title %}View{% endblock %}
 {% block body %}
-<h1>View an Election</h1>
+<h1>Vote in (or view) an Election</h1>
 
-<h2>Selected Election ID: {{ election.election_id }}
+{% for error in errors %}
+    <div class="error">
+        <p>{{ error }}</p>
+    </div>
+{% endfor %}
 
-Election Status: {{ election.status.name }}
+<p>Please enter the 6-digit ID for an election:</p>
+<form action="" method="post">
+    {{ form.election_id.label() }}
+    {{ form.election_id() }}
+    {{ form.submit() }}
+</form>
 
-<h2>Start Time: {{ longTime(election.start_time) }}</h2>
-<h2>End Time: {{ longTime(election.end_time)) }}</h2>
+{% if election is not None %}
+    <div class="view_election">
+        <h3>Election ID: {{ election.election_id }}</h3>
+        <h3>Title: {{ election.title }}</h3>
+        <h3>Status: {{ election.status.name }}</h3>
+        <h3>Start time: {{ election.str_start_time }}</h3>
+        <h3>End time: {{ election.str_end_time }}</h3>
+        <!-- 2 buttons, one to vote, another to view bulletin board. grey one or both out depending on the status -->
+        {% if election.status == 1 %}
+            <button class="disabled">Vote</div>
+            <button class="disabled">Results</div>
+        {% else if election.status == 2 %}
+            <button action="{{ url_for('voteLogin') }}">Vote</div>
+            <button class="disabled">Results</div>
+        {% else %}
+            <button class="disabled">Vote</div>
+            <button action="{{ url_for('results') }}">Results</div>
+        {% emdif %}
+    </div>
+{% endif %}
 
 {% endblock %}
