@@ -1,6 +1,7 @@
 code/dreipy
 code/*.csv
 code/uploads
+code/instance
 Report
 database_new.png
 __pycache__
