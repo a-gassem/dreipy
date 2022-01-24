@@ -1,16 +1,46 @@
-from flask import Flask, render_template, redirect, session, url_for, request
-from helpers import longTime, parseTime, mergeTime, makeID, clearSession, checkCsv
+from flask import Flask, render_template, redirect, session, url_for, request, g
+from helpers import (parseTime, mergeTime, makeID, clearSession,
+                     checkCsv, _makeFolder, getElection)
+
+from forms import (ElectionForm, SubmitForm, ViewElectionForm,
+                   validateDates, validateQuestions, validateUpload)
+from db import initApp, insertElection, getElectionFromDb, getVoterFromDb
+
 from datetime import datetime
-from forms import (ElectionForm, SubmitForm, validateDates, validateQuestions,
-                   validateUpload)
-from db import initDB, insertElection
 import jsonpickle
 import os
 
+DB_NAME = "dreipy.sqlite"
+UPLOAD_FOLDER = "uploads/"
+
+# maximum size of the uploaded CSV file (MiB)
+MAX_FILE_SIZE_LIMIT = 5
 # maximum length of the uploaded CSV filename (number of characters)
 MAX_FILENAME_LENGTH = 50
 
 # TODO: we need to log ALL THE THINGS!
+
+## CAN WE NEATEN THIS UP??
+main = Flask(__name__)
+
+dbPath = os.path.join(main.instance_path, DB_NAME)
+uploadPath = os.path.join(main.instance_path, UPLOAD_FOLDER)
+
+# TODO: make sure we securely generate these -- maybe environment variable?
+main.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+main.config.from_mapping(
+    SECRET_KEY = "TODO",
+    DATABASE = dbPath,
+    UPLOAD_FOLDER = uploadPath,
+    MAX_CONTENT_LENGTH = MAX_FILE_SIZE_LIMIT * 1024 * 1024,
+    )
+
+# create all the relevant folders (note permissions -- are permissions
+# for the files in the folder or the folder itself?)
+_makeFolder(main.instance_path, permissions=750)
+_makeFolder(uploadPath, permissions=750)
+    
+initApp(main)
 
 @main.errorhandler(404)
 def not_found(error):
@@ -38,35 +68,47 @@ def about():
     session['errors'] = []
     return render_template("faq.html")
 
-@main.route("/vote")
-def vote():
+@main.route("/view", methods=['GET', 'POST'])
+def view():
     clearSession(session)
-    # copy the session errors into a local variable, then clear the session
-    # errors so that they do not continue to future requests
-    errors = session['errors']
     session['errors'] = []
-    return render_template("vote.html", errors=errors)
+    election = None
+    form = ViewElectionForm(request.form)
+    if (request.method == 'POST' and form.validate()):
+        # first search for the election in memory
+        election_id = form.election_id.data
+        election = getElection(election_id)
+        # if not there, then look in database and add to memory
+        if election is None:
+            election, errors = getElectionFromDb(election_id)
+            if not errors:
+                g.elections[election_id] = jsonpickle.encode(election)
+        if not election is None and not errors:
+            # set the election ID of the election we found in the session
+            # we will pass this to the GET request to view/vote in an election
+            session["election_id"] = election_id
+    return render_template("view.html", form=form, errors=errors,
+                           election=election)
 
 @main.route("/create", methods=['GET', 'POST'])
 def create():
     # store any errors before we clear the session variable
-    errors = session['errors']
+    errors = session.pop('errors', [])
     clearSession(session)
     session['errors'] = []
-    form = ElectionForm()
+    form = ElectionForm(request.form)
     if ((not errors) and (request.method == 'POST')):
-        form = request.form
         # validate the date part of the form
-        start_time, end_time, dateErrors = validateDates(form)        
+        start_time, end_time, dateErrors = validateDates(form.data)        
         if not dateErrors:
             # validate the question part of the form
-            election, questionErrors = validateQuestions(form, start_time,
+            election, questionErrors = validateQuestions(form.data, start_time,
                                                          end_time)            
             if not questionErrors:
                 # validate the file upload part of the form
-                filepath, delim, uploadErrors = validateUpload(form, request.files,
-                                                               MAX_FILENAME_LENGTH,
-                                                               main.config["UPLOAD_FOLDER"])
+                filepath, delim, uploadErrors = validateUpload(
+                    form.data, request.files, MAX_FILENAME_LENGTH,
+                    main.config["UPLOAD_FOLDER"])
                 if not uploadErrors:
                     # go to the confirm page after assigning values to session
                     sample, warnEmails, csvErrors = checkCsv(filepath, delim)
@@ -92,7 +134,6 @@ def create():
 # lmao
 @main.route("/confirm-election", methods=["GET", "POST"])
 def confirmElection():
-    samples = session.pop('sample', None)
     warnEmails = session.pop('warn', None)
     session['errors'] = []
     
@@ -105,24 +146,75 @@ correctly filled out the election details here.")
         session['errors'].append("Election incomplete, ensure that you \
 have uploaded the voter CSV file after filling out the election details.")
         return redirect(url_for("create"))
-    if samples is None:
+    if not 'sample' in session:
         session['errors'].append("Empty voter file uploaded. Please ensure \
 that you have uploaded a valid, non-empty voter CSV file before trying to \
 confirm the election.")
         return redirect(url_for("create"))
-    election = jsonpickle.decode(session['new_election'])
+    
     if (request.method == 'POST'):
         # if we get a POST with all the checks passed at this point, then insert
         # into the DB
-        insertElection(election, session['filename'], session['delim'])
+        inserted = insertElection(jsonpickle.decode(session['new_election']),
+                                  session.pop('filename'), session.pop('delim'))
+        if inserted is None:
+            print("Election was not inserted successfully")
+        else:
+            print("Election inserted successfully!")
+            session.pop('new_election', None)
+            session.pop('sample', None)
+            return redirect(url_for("splash"))
+    election = jsonpickle.decode(session['new_election'])
     return render_template("confirm_election.html", form=SubmitForm(),
                            election=election, questions=election.questions,
-                           samples=samples, warnings=warnEmails,
-                           start=start_time, end=end_time)
+                           samples=session['sample'], warnings=warnEmails)
 
 
-@main.route("/view", methods=["GET"])
-def view():
+@main.route("/login", methods=["GET", "POST"])
+def voteLogin():
+    # get election_id from the session, or failing that from the GET header
+    election_id = session.pop('election_id', None)
     clearSession(session)
+    if election_id is None and "election_id" in request:
+        election_id = request.election_id
+    else:
+        session['errors'] = ["No election ID given, please specify a valid ID\
+and try again."]
+        return redirect(url_for("view"))
+    # don't trust the election ID automatically, test that it's in memory
+    # (it should be!)
+    if election_id not in g.elections:
+        session['errors'] = ["Invalid election ID passed: No election found\
+with the given ID."]
+        return redirect(url_for("view"))
     session['errors'] = []
-    return render_template("view.html")
+    errors = []
+    form = LoginForm(request.form)
+    if (request.method == "POST" and form.validate()):
+        voter_data = getVoterFromDb(form.email.data, form.code.data,
+                                    election_id)
+        if voter_data is not None:
+            if voter_data['finished']:
+                errors.append("You have already completed voting in this election.\
+If you would like to see the results, please wait until the election completes\
+and then navigate to the View Election page.")
+            else:
+                session['voter'] = voter_data['voter_id']
+                session['id'] = voter_data['session_id']
+                session['question'] = voter_data['question']
+                return redirect(url_for("voting"))
+        else:
+            errors.append("Your email address and/or election code are incorrect.")
+    return render_template("login.html", form=form, election_id=election_id,
+                           errors=errors)
+
+@main.route("/election/ELECTION_ID/vote/QUESTION_NUM", methods=["GET", "POST"])
+def voting():
+    # check session data is valid and present
+    voter_id = session.pop('voter', None)
+    session_id = session.pop('id', None)
+    question_num = session.pop('question', None)
+    
+    form = None
+    errors = []
+    return render_template("voting.html", form=form, errors=errors)

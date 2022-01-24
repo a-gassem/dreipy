@@ -1,14 +1,19 @@
 from pyisemail import is_email
 from pyisemail.diagnosis import InvalidDiagnosis, ValidDiagnosis
+from flask import g
+import jsonpickle
 
 from Voter import Voter
+from Election import Election
+from Question import Question
 
 from uuid import uuid4
 from datetime import datetime
-from typing import Union, Dict, Any, Tuple, List, Generic
+from typing import Union, Dict, Any, Tuple, List, Generic, Optional
 import csv
+import os
 
-LONG_FORMAT = "%A %d %B %Y %I:%M:%S%p"
+
 DOB_FORMAT = "%d-%m-%Y"
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -37,18 +42,25 @@ class InsensitiveDictReader(csv.DictReader):
     def next(self):
         return InsensitiveDict(csv.DictReader.next(self))
 
+## TODO!!!
+def generateSession() -> str:
+    """Returns a cryptographically secure session ID"""
+    return "TODO"
+
+def _makeFolder(path: str, permissions: int) -> None:
+    """Helper procedure to create a folder that may or may not already exist."""
+    try:
+        os.makedirs(path, mode=permissions)
+    except OSError:
+        pass
+
 def makeID() -> str:
     """Generates a random, unique ID by making a UUID 4, converting to hex and
 taking its string representation. Note, this is not cryptographically secure,
 it's simply for indexing in the database!"""
     return str(uuid4().hex)
 
-def longTime(time_obj: datetime) -> str:
-    """Returns the given datetime object as a long-form, user-friendly string.
-E.g: Wednesday 30 March 2022 10:45:30AM"""
-    return time_obj.strftime(LONG_FORMAT)
-
-def parseTime(time_str: str) -> Union[datetime, None]:
+def parseTime(time_str: str) -> Optional[datetime]:
     """Returns a datetime object constructed from parsing the input string. If
 the string is not well-formed, returns None."""
     try:
@@ -56,16 +68,38 @@ the string is not well-formed, returns None."""
     except ValueError:
         return None
 
+def parseElection(electionDict: Dict, start_time: datetime,
+              end_time: datetime) -> Optional[Election]:
+    """Given a dictionary of questions and choices, with the start/end times try
+to create an Election object and return it; otherwise return None"""
+    questionObjs = []
+    questions = electionDict['questions']
+    # note that we sort all our dictionaries to ensure that we get the correct
+    # ordering of our lists when we iterate through them
+    try:
+        for questionNum, qDict in sorted(questions.items()):
+            choiceObjs = []
+            for choiceNum, choice in sorted(qDict['choices'].items()):
+                choiceObjs.append(choice)
+            questionObjs.append(Question(makeID(), qDict['query'],
+                                         qDict['maxanswers'], choiceObjs))
+        return Election(makeID(), electionDict['title'], questionObjs,
+                        start_time, end_time)
+    except Exception as e:
+        # there shouldn't be any errors, but print to console just in case
+        print(e)
+        return None
+
 def mergeTime(year: str, month: str, day: str, hour: str, mins: str,
               secs: str) -> str:
     return f"{year}-{month}-{day} {hour}:{mins}:{secs}" 
 
-def clearSession(session: Dict, keys=[]: List[str]) -> None:
+def clearSession(session: Dict, keys: Optional[List]=None) -> None:
     """Given a Flask session and some keys, pop all those keys if they exist.
 Useful for when we want to clear out session data when a user is redirected.
 If no keys are passed (or the list is empty), then all keys are popped."""
-    if not keys:
-        for key, val in session.items():
+    if keys is None:
+        for key in list(session.keys()):
             session.pop(key, None)
     else:
         for key in keys:
@@ -85,7 +119,7 @@ it as."""
     return f"{makeID()}.csv"
 
 def checkCsv(filepath: str, delimiter: str) \
-    -> Tuple[Union[List, None], Union[List, None], List[str]]:
+    -> Tuple[Optional[List], Optional[List], List[str]]:
     """Does some basic checks on an input CSV file. We do not exhaustively
 check for things like valid email addresses, valid postcodes and so on -- it
 is the responsibility of the person creating the election to gather the details
@@ -149,7 +183,7 @@ Please ensure that all invalid email addresses are removed from the CSV file.")
         return None, None, errors
     return voters, emails['warn'], errors
 
-def _getVoters(election_id: str, filepath: str, delimiter: str):
+def _getVoters(election_id: str, filepath: str, delimiter: str) -> List[Voter]:
     """Takes a path to a validated CSV file and returns a list of Voters whose
 details are stored in the file"""
     voters = []
@@ -160,7 +194,23 @@ details are stored in the file"""
             lname = voter['lname'][:LNAME_MAX_LENGTH]
             postcode = voter['postcode'][:POSTCODE_MAX_LENGTH]
             email = voter['email']
-            dob = voter['dob'].datetime.strptime(row['dob'], DOB_FORMAT)
+            dob = datetime.strptime(voter['dob'], DOB_FORMAT)
             voters.append(Voter(makeID(), election_id, fname, lname, postcode,
-                                email, dob))
+                                email, dob, "SOME_HASH"))
     return voters
+
+
+def getElection(election_id: str) -> Optional[Election]:
+    """Searches for an election with the given id in 'g' -- if not found then
+return None."""
+    if 'elections' not in g:
+        g.elections = dict()
+        return None
+    if election_id not in g.elections:
+        return None
+    return jsonpickle.decode(g.elections[election_id])
+
+def validateHash(user_code: str, db_hash: str) -> bool:
+    """Given a user's election code, checks that its hash matches with the stored
+value when passed through hash function."""
+    return hash(user_code) == db_hash

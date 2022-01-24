@@ -4,13 +4,13 @@ from wtforms.validators import DataRequired, Email, ValidationError
 from werkzeug.utils import secure_filename
 from flask import current_app
 
-from helpers import parseTime, mergeTime, makeID, newFilename, isCsv
-from Election import Election, parseElection
-from Choice import Choice
+from helpers import (parseTime, parseElection, mergeTime, makeID, newFilename,
+                     isCsv)
+from Election import Election
 from Question import Question
 
 from datetime import datetime
-from typing import Union, Callable, List, Tuple, Generic, Dict
+from typing import Union, List, Tuple, Generic, Dict, Optional
 import re
 import os
 
@@ -47,11 +47,20 @@ parseTime() function will disallow any empty inputs anyway."""
     delimiter = StringField("Delimiter:", [DataRequired()], default=',')
     submit = SubmitField("Create Election")
 
+class ViewElectionForm(FlaskForm):
+    election_id = StringField("Election ID:", [DataRequired()])
+    submit = SubmitField("Search")
+
+class LoginForm(FlaskForm):
+    email = StringField("Enter your email address:", [DataRequired()])
+    code = StringField("Enter your code:", [DataRequired()])
+    submit = SubmitField("Login")
+
 class SubmitForm(FlaskForm):
     submit = SubmitField("Submit")
 
-def validateDates(form) -> Tuple[Union[datetime, None],
-                                 Union[datetime, None], List[str]]:
+def validateDates(form: Dict) \
+    -> Tuple[Optional[datetime], Optional[datetime], List[str]]:
     errors = []
     start_time = None
     end_time = None
@@ -61,7 +70,7 @@ def validateDates(form) -> Tuple[Union[datetime, None],
                                form['start_mins'], form['start_secs']))
         end_time = parseTime(mergeTime(form['end_year'], form['end_month'],
                              form['end_day'], form['end_hour'],
-                             form['start_mins'], form['start_secs']))
+                             form['end_mins'], form['end_secs']))
         if (start_time is None):
             errors.append("Badly formatted start date/time.")
         if (end_time is None):
@@ -78,15 +87,15 @@ def validateDates(form) -> Tuple[Union[datetime, None],
             errors.append("Please input a time after the chosen start time.")
     return start_time, end_time, errors
 
-def validateQuestions(form: Generic, start_time: datetime,
-                      end_time: datetime) -> Tuple[Union[Election, None],
-                                                   List[str]]:
+def validateQuestions(form: ElectionForm, start_time: datetime,
+                      end_time: datetime) -> Tuple[Optional[Election], List[str]]:
     errors = []
     questions = {}
     title = None
     # We cannot know the order of the response, we also do not know how many
     # questions and choices there will be, so we need to use regex to figure
     # out what to do.
+    
     try:
         for id, value in form.items():
             id = str(id)
@@ -114,7 +123,7 @@ for question {questionNum}")
             elif cMatch:
                 questionNum = int(cMatch.group(1))
                 choiceNum = int(cMatch.group(2))
-                newChoice = Choice(makeID(), str(value))
+                newChoice = str(value)
                 if questionNum in questions:
                     if 'choices' in questions[questionNum]:
                         if choiceNum in questions[questionNum]['choices']:
@@ -153,7 +162,7 @@ for question {questionNum}")
             errors.append("Something went wrong when parsing the form data.")
     return election, errors
 
-def validateUpload(form, files: Dict, MAX_FILENAME_LENGTH: int,
+def validateUpload(form: Dict, files: Dict, MAX_FILENAME_LENGTH: int,
                    UPLOAD_FOLDER: str) -> Tuple[Union[str, None],
                                                 Union[str, None], List[str]]:
     errors = []
