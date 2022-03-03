@@ -15,7 +15,7 @@ CREATE TABLE voters (
   postcode VARCHAR(8) NOT NULL,
   email VARCHAR NOT NULL,
   finished_voting BOOLEAN NOT NULL,
-  current_question INT NOT NULL,
+  current_question INT,
   FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE
 );
 

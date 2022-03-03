@@ -4,8 +4,9 @@ from typing import Optional, List, Tuple, Dict, Any
 
 from helpers import _getVoters, validateHash
 from Election import Election
+from Status import Status, checkStatus
 from Question import Question
-from helpers import generateSession
+from helpers import generateSession, parseTime
 
 import click
 from flask import Flask, current_app, g
@@ -27,28 +28,49 @@ inVoterSql = """INSERT INTO voters
 finished_voting, current_question) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"""
 
 # reconstruct an election with these
-fetchElection = """SELECT (title, start_time, end_time)
+fetchElection = """SELECT title, start_time, end_time
 FROM elections
 WHERE election_id = ? LIMIT 1;"""
 
-fetchQuestions = """SELECT (question_id, text, question_num, num_answers)
+fetchQuestions = """SELECT question_id, text, question_num, num_answers
 FROM questions NATURAL JOIN election_questions
-WHERE election_id = ? ORDER BY index_num ASC;"""
+WHERE election_id = ? ORDER BY question_num ASC;"""
 
-fetchChoices = """SELECT (text)
+fetchChoices = """SELECT text
 FROM choices
 WHERE question_id = ? ORDER BY index_num ASC;"""
 
+fetchQuestionID = """SELECT question_id
+FROM elections
+WHERE election_id = ? LIMIT 1;"""
+
+fetchElectionQuestion = """SELECT text, num_answers
+FROM questions
+WHERE question_id = ? LIMIT 1;"""
+
 # get voter info with these
-fetchVoter = """SELECT (voter_id, election_id, pass_hash, session_id,
-finished_voting, current_question)
-FROM voters NATURAL JOIN sessions
+fetchVoter = """SELECT election_id, pass_hash, session_id, finished_voting,
+current_question
+FROM voters
 WHERE election_id = ? AND email = ? LIMIT 1;"""
 
+fetchSession = """SELECT election_id, current_question
+FROM voters
+WHERE session_id = ? LIMIT 1;"""
+
+# validate election data with these
+checkElectionId = """SELECT election_id
+FROM elections
+WHERE election_id = ? LIMIT 1;"""
+
+checkElectionDates = """SELECT start_time, end_time
+FROM elections
+WHERE election_id = ? LIMIT 1;"""
+
 def getDBConnection() -> Optional[sqlite3.Connection]:
-    """Creates a Connection object that is reused on multiple requests with the
-special 'g' variable. If for whatever reason we are unsuccessful then we print
-the error message and return None.
+    """Creates a Connection object that is reused with the special 'g' variable.
+If for whatever reason we are unsuccessful then we print the error message and
+return None.
 """
     if 'db' not in g:
         try:
@@ -78,7 +100,6 @@ it will CLEAR ALL DATA in the database so use it carefully.
     con = getDBConnection()
     if con is None:
         return None
-
     try:
         with current_app.open_resource("schema.sql") as f:
             con.executescript(f.read().decode('utf8'))
@@ -119,7 +140,6 @@ data into the database. Returns None if we encounter an error -- True otherwise.
     con = getDBConnection()
     if con is None:
         return None
-    
     try:
         cur = con.cursor()
         # insert voters from CSV file
@@ -146,7 +166,7 @@ data into the database. Returns None if we encounter an error -- True otherwise.
         print(e)
         return None
     finally:
-        con.close()
+        cur.close()
 
 def getElectionFromDb(election_id: str) -> Tuple[Optional[Election], List[str]]:
     """Called when an Election object with the given ID is not already in memory.
@@ -158,13 +178,13 @@ Tries to find the Election in the database and return it for quick access later.
     try:
         cur = con.cursor()
         # first find election
-        electionMatch = cur.execute(fetchElection, (election_id,))
-        if not electionMatch:
+        row = cur.execute(fetchElection, (election_id,)).fetchone()
+        if row is None:
             errors.append(f"No elections found with ID: {election_id}. Double \
 check that you have typed it in correctly and try again.")
             raise Exception
         # then parse main metadata
-        title, start_time, end_time = electionMatch[0]
+        title, start_time, end_time = row
         start_time = parseTime(start_time)
         end_time = parseTime(end_time)
         if start_time is None:
@@ -174,21 +194,21 @@ check that you have typed it in correctly and try again.")
             errors.append("The end time could not be parsed into a datetime object.")
             raise Exception
         # fetch its questions
-        questions = cur.execute(fetchQuestions, (election_id,))
-        if not questions:
+        rows = cur.execute(fetchQuestions, (election_id,)).fetchall()
+        if rows is None:
             errors.append(f"No questions found for election ID: {election_id}. Double \
 check that you have typed it in correctly and try again.")
             raise Exception
         election_questions = []
-        for question_id, query, index_num, max_answers in questions:
-            choices = cur.execute(fetchChoices, (question_id,))
-            if not choices:
+        for question_id, query, index_num, max_answers in rows:
+            sub_rows = cur.execute(fetchChoices, (question_id,)).fetchall()
+            if sub_rows is None:
                 errors.append(f"No choices found for question: {index_num} in\
 election {election_id}.")
                 raise Exception
-            # CHECK IF IT'S A 1-TUPLE OR LIST OF STRINGS
-            print(choices)
-            election_questions.append(Question(question_id, query, max_answers, choices))
+            choices = [row['text'] for row in sub_rows]
+            election_questions.append(Question(question_id, query, max_answers,
+                                               choices))
         new_election = Election(election_id, title, election_questions,
                                 start_time, end_time)
         return new_election, errors
@@ -196,7 +216,7 @@ election {election_id}.")
         print(e)
         return None, errors
     finally:
-        con.close()
+        cur.close()
         
 def isElectionInDb(election_id: str) -> bool:
     """Given an election ID, check whether an election exists with that ID
@@ -205,12 +225,58 @@ in the database."""
     if con is None:
         return False
     try:
-        pass
+        cur = con.cursor()
+        if cur.execute(checkElectionId, (election_id,)).fetchone() is None:
+            return False
+        return True
     except Exception as e:
         print(e)
         return False
     finally:
-        con.close()
+        cur.close()
+
+def getElectionStatus(election_id: str) -> Optional[Status]:
+    """Given an election ID, returns its Status if it exists otherwise return None"""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        row = cur.execute(checkElectionDates, (election_id,)).fetchone()
+        if row is None:
+            return None
+        start_time, end_time = row
+        start_time = parseTime(start_time)
+        end_time = parseTime(end_time)
+        return checkStatus(start_time, end_time)
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+
+def validSessionData(session_id: str, election_id: str, question_num: int) \
+    -> bool:
+    """Checks that the passed session data aligns with what is stored in the
+database."""
+    con = getDBConnection()
+    if con is None:
+        return False
+    try:
+        cur = con.cursor()
+        # check the session even exists
+        row = cur.execute(fetchSession, (session_id,)).fetchone()
+        if row is None:
+            return False
+        # unpack the session and check with passed values
+        db_election_id, db_question_num = row
+        return election_id == db_election_id \
+               and question_num == int(db_question_num)
+    except Exception as e:
+        print(e)
+        return False
+    finally:
+        cur.close()
 
 def getVoterFromDb(email: str, code: str, election_id: str) \
     -> Optional[Dict[str, Any]]:
@@ -219,22 +285,47 @@ corresponding voter data from the database; returns all None if unsuccessful."""
     con = getDBConnection()
     if con is None:
         return None
-
     try:
         cur = con.cursor()
-        voter = cur.execute(fetchVoter, (election_id, email))
-        if not voter:
+        row = cur.execute(fetchVoter, (election_id, email)).fetchone()
+        if not row:
             return None
-        voter_id, db_election_id, db_hash, session_id, q_num, finished = voter
-        if election_id != db_election_id or \
-           not validateHash(code, db_hash):
+        db_election_id, db_hash, session_id, finished, q_num = row
+        if election_id != db_election_id \
+           or not validateHash(code, db_hash):
             return None
-        return {'voter_id':voter_id,
-                'session_id':session_id,
-                'question':int(question_num),
+        return {'session_id':session_id,
+                'question':int(q_num),
                 'finished':bool(finished)}
     except Exception as e:
         print(e)
         return None
     finally:
-        con.close()
+        cur.close()
+
+def getElectionQuestion(election_id: str, question_num: int) \
+    -> Optional[Question]:
+    """Given an election ID and question number, returns a constructued Question
+object from the database if possible; otherwise return None."""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        row = cur.execute(fetchQuestionID, (election_id,)).fetchone()
+        if not row:
+            return None
+        question_id = row['question_id']
+        row = cur.execute(fetchElectionQuestion, (question_id,)).fetchone()
+        if not row:
+            return None
+        query, num_answers = row
+        rows = cur.execute(fetchChoices, (question_id,)).fetchall()
+        if not rows:
+            return None
+        return Question(question_id, query, num_answers, choices=[choice['text'] for choice in rows])
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
