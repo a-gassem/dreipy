@@ -10,7 +10,7 @@ from Election import Election
 from Question import Question
 
 from datetime import datetime
-from typing import Union, List, Tuple, Generic, Dict, Optional
+from typing import Union, List, Tuple, Generic, Dict, Optional, Callable
 import re
 import os
 
@@ -58,6 +58,33 @@ class LoginForm(FlaskForm):
 
 class SubmitForm(FlaskForm):
     submit = SubmitField("Submit")
+
+class QuestionForm(FlaskForm):
+    def __init__(self, question: Question):
+        super().__init__(self)
+
+        choiceTups = [(i, self.choices[i]) for i in len(self.choices)]        
+        # create callable that validates that the number of choices matches
+        # what is stored in the Question object
+
+        # set HTML size attribute to max_answers!
+        if question.max_answers > 1:
+            self.q_choices = SelectMultipleField(question.query, choiceTups,
+                                                 [checkChoices(question.max_answers)])    
+        else:
+            self.q_choices = SelectField(question.query, choiceTups,
+                                         [checkChoices(question.max_answers)])
+                                         
+        self.nextQ = SubmitField("Vote")
+
+def checkChoices(num_choices: int) -> Callable:
+    """Validator to ensure that the number of choices matches the expected
+number."""
+    def _choices(form: QuestionForm, choice_field: SelectField) -> None:
+        ## CHECK IF SELECTED VALUES == NUM_CHOICES
+        if None:
+            raise ValidationError(f"Please select {num_choices} answer(s).")
+    return _choices
 
 def validateDates(form: Dict) \
     -> Tuple[Optional[datetime], Optional[datetime], List[str]]:

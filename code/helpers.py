@@ -1,6 +1,5 @@
 from pyisemail import is_email
 from pyisemail.diagnosis import InvalidDiagnosis, ValidDiagnosis
-from flask import g
 import jsonpickle
 
 from Voter import Voter
@@ -199,18 +198,7 @@ details are stored in the file"""
                                 email, dob, "SOME_HASH"))
     return voters
 
-
-def getElection(election_id: str) -> Optional[Election]:
-    """Searches for an election with the given id in 'g' -- if not found then
-return None."""
-    if 'elections' not in g:
-        g.elections = dict()
-        return None
-    if election_id not in g.elections:
-        return None
-    return jsonpickle.decode(g.elections[election_id])
-
 def validateHash(user_code: str, db_hash: str) -> bool:
     """Given a user's election code, checks that its hash matches with the stored
 value when passed through hash function."""
-    return hash(user_code) == db_hash
+    return user_code == db_hash
