@@ -1,6 +1,6 @@
 from typing import List, Tuple, Dict
 from Question import Question
-from Status import Status
+from Status import Status, checkStatus
 from datetime import datetime
 
 class Election():
@@ -80,14 +80,7 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
 
     @property
     def status(self) -> Status:
-        now = datetime.now()
-        # ensure that we use matching time zone information for calculations
-        now = now.replace(tzinfo=self.start_time.tzinfo)
-        if (now < self.start_time):
-            return Status.PENDING
-        elif (now >= self.start_time and now < self.end_time):
-            return Status.ONGOING
-        return Status.CLOSED
+        return checkStatus(self.start_time, self.end_time)
 
     def __str__(self):
         string = f"Election ID: {self.election_id}\n"
