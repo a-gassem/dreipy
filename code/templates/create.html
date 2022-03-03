@@ -15,9 +15,7 @@
 
 
 <form enctype="multipart/form-data" action="" method="post">
-    <div>
-        {{ form.csrf_token }}
-    </div>
+    {{ form.csrf_token }}
     {% for error in errors %}
         <div class="error">{{ error }}</div>
     {% endfor %}

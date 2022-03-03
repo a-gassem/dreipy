@@ -46,6 +46,7 @@
     <div class="row">
         <button onclick="window.location.href='{{ url_for('create') }}'" class="btn" type="button">Back</button>
         <form action="" method="post">
+            {{ form.csrf_token }}
             {{ form.submit() }}
         </form>
     </div>

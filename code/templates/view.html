@@ -11,12 +11,13 @@
 
 <p>Please enter the 6-digit ID for an election:</p>
 <form action="" method="post">
+    {{ form.csrf_token }}
     {{ form.election_id.label() }}
     {{ form.election_id() }}
     {{ form.submit() }}
 </form>
 
-{% if election is not None %}
+{% if election %}
     <div class="view_election">
         <h3>Election ID: {{ election.election_id }}</h3>
         <h3>Title: {{ election.title }}</h3>
@@ -24,16 +25,16 @@
         <h3>Start time: {{ election.str_start_time }}</h3>
         <h3>End time: {{ election.str_end_time }}</h3>
         <!-- 2 buttons, one to vote, another to view bulletin board. grey one or both out depending on the status -->
-        {% if election.status == 1 %}
-            <button class="disabled">Vote</div>
-            <button class="disabled">Results</div>
-        {% else if election.status == 2 %}
-            <button action="{{ url_for('voteLogin') }}">Vote</div>
-            <button class="disabled">Results</div>
+        {% if election.status.name == "PENDING" %}
+            <div class="btn disabled">Vote</div>
+            <div class="btn disabled">Results</div>
+        {% elif election.status.name == "ONGOING" %}
+            <div class="btn"><a href="{{ url_for('voteLogin') }}?election_id={{ election.election_id }}">Vote</a></div>
+            <div class="btn disabled">Results</div>
         {% else %}
-            <button class="disabled">Vote</div>
-            <button action="{{ url_for('results') }}">Results</div>
-        {% emdif %}
+            <div class="btn disabled">Vote</div>
+            <div class="btn"><a href="{{ url_for('results') }}?election_id={{ election.election_id }}">Results</a></div>
+        {% endif %}
     </div>
 {% endif %}
 
