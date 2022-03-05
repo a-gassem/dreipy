@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Vote{% endblock %}
+{% block body %}
+<h1>Iiiiiiiiiiiit's VOTING TIME!</h1>
+
+{% for error in errors %}
+    <div class="error">{{ error }}</div>
+{% endfor %}
+<form action="" method="post">
+    {{ form.csrf_token }}
+
+    {% if form.expected_choices > 1 %}
+        {{ form.q_multi_choice.label() }}
+        {{ form.q_multi_choice() }}
+    {% else %}
+        {{ form.q_single_choice.label() }}
+        {{ form.q_single_choice() }}
+    {% endif %}
+    
+    <div class="btn">{{ form.submit() }}</div>
+</form>
+{% endblock %}

@@ -25,10 +25,10 @@ Methods:
     
     def makeQuestionTuples(questionList) -> List[Tuple[str, str, int, int]]:
         """Returns a list of SQL friendly tuples for all the Questions in the
-Election, i.e: (question_id, query, index, num_answers)"""
+Election, i.e: (question_id, query, question_num, num_answers)"""
         questionTups = []
         for i in range(len(questionList)):
-            questionTups.append((questionList[i].question_id, questionList[i].query, i,
+            questionTups.append((questionList[i].question_id, questionList[i].query, i+1,
                                  questionList[i].max_answers))
         return questionTups
 

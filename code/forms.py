@@ -1,5 +1,6 @@
 from flask_wtf import FlaskForm
-from wtforms import StringField, SubmitField, SelectField, FileField
+from wtforms import (StringField, SubmitField, SelectField, FileField,
+                     SelectMultipleField, RadioField)
 from wtforms.validators import DataRequired, Email, ValidationError
 from werkzeug.utils import secure_filename
 from flask import current_app
@@ -60,31 +61,53 @@ class SubmitForm(FlaskForm):
     submit = SubmitField("Submit")
 
 class QuestionForm(FlaskForm):
-    def __init__(self, question: Question):
-        super().__init__(self)
+    # initialise Form with default attributes that we overwrite in the
+    # constructor
+    q_multi_choice = SelectMultipleField("Default", choices=[(0, "default")])
+    q_single_choice = RadioField("Default", choices=[(0, "default")])
+    expected_choices = 1
+    choice_list = []
+    submit = SubmitField("Vote")
 
-        choiceTups = [(i, self.choices[i]) for i in len(self.choices)]        
-        # create callable that validates that the number of choices matches
-        # what is stored in the Question object
-
-        # set HTML size attribute to max_answers!
-        if question.max_answers > 1:
-            self.q_choices = SelectMultipleField(question.query, choiceTups,
-                                                 [checkChoices(question.max_answers)])    
+    def __init__(self, question: Question, *args, **kwargs) -> FlaskForm:
+        super().__init__(*args, **kwargs)
+        self.choice_list = [(i, question.choices[i]) for i in range(len(question.choices))]
+        if question.is_multi:
+            self.q_multi_choice.label.text = question.query
+            self.q_multi_choice.choices = self.choice_list
         else:
-            self.q_choices = SelectField(question.query, choiceTups,
-                                         [checkChoices(question.max_answers)])
-                                         
-        self.nextQ = SubmitField("Vote")
+            self.q_single_choice.label.text = question.query
+            self.q_single_choice.choices = self.choice_list
+        self.expected_choices = question.max_answers
 
-def checkChoices(num_choices: int) -> Callable:
-    """Validator to ensure that the number of choices matches the expected
-number."""
-    def _choices(form: QuestionForm, choice_field: SelectField) -> None:
-        ## CHECK IF SELECTED VALUES == NUM_CHOICES
-        if None:
-            raise ValidationError(f"Please select {num_choices} answer(s).")
-    return _choices
+    def validate_q_single_choice(form: FlaskForm, field: RadioField) \
+        -> Optional[ValidationError]:
+        """Validator for questions that only allow 1 choice."""
+        if form.expected_choices != 1:
+            return
+        if len(field.data) != 1:
+            raise ValidationError("Bad number of choices (expected 1)")
+        try:
+            choice_index = int(field.data)
+            if choice_index < 0 or choice_index >= len(form.choice_list):
+                raise ValidationError("Choice index outside question range")
+        except TypeError:
+            raise ValidationError("Choice index must be an integer")
+
+    def validate_q_multi_choice(form: FlaskForm, field: SelectMultipleField) \
+        -> Optional[ValidationError]:
+        """Validator for questions that require more than 1 choices."""
+        if form.expected_choices == 1:
+            return
+        if len(field.data) != form.expected_choices:
+            raise ValidationError(f"Bad number of choices (expected {form.expected_choices})")
+        try:
+            for entry in field.data:
+                choice_index = int(entry)
+                if choice_index < 0 or choice_index >= len(form.choice_list):
+                    raise ValidationError("Choice index outside question range")
+        except TypeError:
+            raise ValidationError("All choice indices must be integers")
 
 def validateDates(form: Dict) \
     -> Tuple[Optional[datetime], Optional[datetime], List[str]]:
