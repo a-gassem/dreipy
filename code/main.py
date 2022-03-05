@@ -6,9 +6,11 @@ from helpers import (parseTime, mergeTime, makeID, clearSession,
                      checkCsv, _makeFolder)
 
 from forms import (ElectionForm, SubmitForm, ViewElectionForm, LoginForm,
-                   validateDates, validateQuestions, validateUpload)
+                   validateDates, validateQuestions, validateUpload,
+                   QuestionForm)
 from db import (initApp, insertElection, getElectionFromDb, getVoterFromDb,
-                isElectionInDb, getElectionStatus, validSessionData)
+                isElectionInDb, getElectionStatus, validSessionData,
+                getElectionQuestion)
 
 from datetime import datetime
 from markupsafe import escape
@@ -28,7 +30,7 @@ MAX_FILENAME_LENGTH = 50
 # TODO: secure CSRF token generation
 # TODO: CSS so it's  p r e t t y
 # TODO: proper hashing/validation of stuff
-# TODO:
+# TODO: shift form validation into the form classes
 
 ## general QoL improvements
 # TODO: logging
@@ -178,6 +180,7 @@ confirm the election.")
 @main.route("/login", methods=["GET", "POST"])
 def voteLogin():
     # use GET request to parse and check the election ID we're trying to login with
+    errors = session.pop("errors", [])
     clearSession(session)
     election_id = escape(request.args.get("election_id", ""))
     if not election_id:
@@ -202,7 +205,6 @@ with that ID."]
 
     # check login details on login
     form = LoginForm(request.form)
-    errors = []
     if form.validate_on_submit():
         voter_data = getVoterFromDb(escape(form.email.data), escape(form.code.data),
                                     election_id)
@@ -224,22 +226,53 @@ and then navigate to the View Election page.")
 def voting(election_id: str, question_num: int):
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
-    # check session data
+    # check session data (correct session ID and election question number)
     if 'id' not in session:
         session['errors'] = ['Please login before trying to vote.']
-        return redirect(url_for("voteLogin"))
+        return redirect(url_for("voteLogin", election_id=clean_id))
     if not validSessionData(session['id'], clean_id, clean_num):
         session['errors'] = ['Invalid session data passed.']
-        return redirect(url_for("view"))
+        return redirect(url_for("voteLogin", election_id=clean_id))
     # make a Form from the Question object
-    question = getElectionQuestion(election_id, clean_num)
+    question = getElectionQuestion(clean_id, clean_num)
     if question is None:
         session['errors'] = ['Something went wrong when trying to fetch that question']
-        return redirect(url_for("voteLogin"))
-    form = QuestionForm(question)
-    errors = []
-    return render_template("voting.html", form=form, errors=errors)
+        return redirect(url_for("voteLogin", election_id=clean_id))
+    form = QuestionForm(question, request.form)
+    if form.validate_on_submit():
+        if question.is_multi:
+            session['choice'] = form.q_multi_choice.data
+            session['multi'] = True
+            # TODO: handle having multiple choices...
+        else:
+            session['choice'] = form.q_single_choice.data
+            session['multi'] = False
+        # 0. After 'Vote' button pressed, go to new page...
+        # 1. DRE calculates R_i from r_i and g_2, Z_i from r_i v_i and g_1,
+        #    and P_WF from g_1, f_2 and R_i
+        # 2. provide signed receipt with UNIQUE ballot index i and above results
+        # 3. AUDIT or CONFIRM (new page)
+        # 4a -- IF AUDIT then A := A + i, provide the signed receipt WITH SECRETS
+        #        AND 'audited' clearly marked. verify v_i reflects the choice.
+        #        Send user back to voting page
+        # 4b -- ELSE
+        return redirect(url_for("firstReceipt", election_id=clean_id,
+                                question_num=clean_num))
+    return render_template("voting.html", form=form, errors=form.errors)
 
+@main.route("/<string:election_id>/vote/<int:question_num>/submitted", methods=["GET", "POST"])
+def firstReceipt(election_id: str, question_num: int):
+    clean_id = escape(election_id)
+    clean_num = int(escape(question_num))
+    if 'id' not in session:
+        session['errors'] = ['Please login before trying to vote.']
+        return redirect(url_for("voteLogin", election_id=clean_id))
+    if not validSessionData(session['id'], clean_id, clean_num):
+        session['errors'] = ['Invalid session data passed, login again.']
+        return redirect(url_for("voteLogin", election_id=clean_id))
+
+    # do some checking of session['choice']
+    
 
 @main.route("/<string:election_id>/results", methods=["GET", "POST"])
 def results(election_id: str):

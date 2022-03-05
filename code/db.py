@@ -40,13 +40,9 @@ fetchChoices = """SELECT text
 FROM choices
 WHERE question_id = ? ORDER BY index_num ASC;"""
 
-fetchQuestionID = """SELECT question_id
-FROM elections
-WHERE election_id = ? LIMIT 1;"""
-
-fetchElectionQuestion = """SELECT text, num_answers
-FROM questions
-WHERE question_id = ? LIMIT 1;"""
+fetchElectionQuestion = """SELECT question_id, text, num_answers
+FROM questions NATURAL JOIN election_questions
+WHERE (election_questions.election_id = ?) AND (questions.question_num = ?);"""
 
 # get voter info with these
 fetchVoter = """SELECT election_id, pass_hash, session_id, finished_voting,
@@ -305,21 +301,17 @@ corresponding voter data from the database; returns all None if unsuccessful."""
 
 def getElectionQuestion(election_id: str, question_num: int) \
     -> Optional[Question]:
-    """Given an election ID and question number, returns a constructued Question
+    """Given an election ID and question number, returns a constructed Question
 object from the database if possible; otherwise return None."""
     con = getDBConnection()
     if con is None:
         return None
     try:
         cur = con.cursor()
-        row = cur.execute(fetchQuestionID, (election_id,)).fetchone()
+        row = cur.execute(fetchElectionQuestion, (election_id, question_num)).fetchone()
         if not row:
             return None
-        question_id = row['question_id']
-        row = cur.execute(fetchElectionQuestion, (question_id,)).fetchone()
-        if not row:
-            return None
-        query, num_answers = row
+        question_id, query, num_answers = row
         rows = cur.execute(fetchChoices, (question_id,)).fetchall()
         if not rows:
             return None
