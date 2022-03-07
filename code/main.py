@@ -2,15 +2,14 @@ from flask import (Flask, render_template, redirect, session, url_for,
                    request, g)
 from flask_wtf.csrf import CSRFProtect
 
-from helpers import (parseTime, mergeTime, makeID, clearSession,
+from helpers import (parseTime, mergeTime, makeID, clearSession, firstReceipt,
                      checkCsv, _makeFolder)
-
 from forms import (ElectionForm, SubmitForm, ViewElectionForm, LoginForm,
                    validateDates, validateQuestions, validateUpload,
                    QuestionForm)
 from db import (initApp, insertElection, getElectionFromDb, getVoterFromDb,
                 isElectionInDb, getElectionStatus, validSessionData,
-                getElectionQuestion)
+                getElectionQuestion, getNewBallotID)
 
 from datetime import datetime
 from markupsafe import escape
@@ -241,27 +240,26 @@ def voting(election_id: str, question_num: int):
     form = QuestionForm(question, request.form)
     if form.validate_on_submit():
         if question.is_multi:
-            session['choice'] = form.q_multi_choice.data
-            session['multi'] = True
-            # TODO: handle having multiple choices...
+            choice = form.q_multi_choice.data
         else:
-            session['choice'] = form.q_single_choice.data
-            session['multi'] = False
-        # 0. After 'Vote' button pressed, go to new page...
-        # 1. DRE calculates R_i from r_i and g_2, Z_i from r_i v_i and g_1,
-        #    and P_WF from g_1, f_2 and R_i
-        # 2. provide signed receipt with UNIQUE ballot index i and above results
-        # 3. AUDIT or CONFIRM (new page)
-        # 4a -- IF AUDIT then A := A + i, provide the signed receipt WITH SECRETS
-        #        AND 'audited' clearly marked. verify v_i reflects the choice.
-        #        Send user back to voting page
-        # 4b -- ELSE
-        return redirect(url_for("firstReceipt", election_id=clean_id,
-                                question_num=clean_num))
+            choice = [form.q_single_choice.data]
+
+        # do proofs, make receipts, sign data etc. etc.
+        session['receipt'] = firstReceipt(question, choice)
+        if session['receipt'] is None:
+            form.errors.append( 'Something went wrong with your ballot, try again.')
+        else:
+            return redirect(url_for("firstReceipt", election_id=clean_id,
+                                    question_num=clean_num))
     return render_template("voting.html", form=form, errors=form.errors)
 
-@main.route("/<string:election_id>/vote/<int:question_num>/submitted", methods=["GET", "POST"])
-def firstReceipt(election_id: str, question_num: int):
+# 3. AUDIT or CONFIRM (new page)
+# 4a -- IF AUDIT then A := A + i, provide the signed receipt WITH SECRETS
+#        AND 'audited' clearly marked. verify v_i reflects the choice.
+#        Send user back to voting page
+# 4b -- ELSE
+@main.route("/<string:election_id>/vote/<int:question_num>/audit", methods=["GET", "POST"])
+def auditOrConfirm(election_id: str, question_num: int):
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
     if 'id' not in session:
@@ -272,7 +270,13 @@ def firstReceipt(election_id: str, question_num: int):
         return redirect(url_for("voteLogin", election_id=clean_id))
 
     # do some checking of session['choice']
-    
+    choices = session.pop('choice', None)
+    if choices is None:
+        session['error'] = ['Badly-formed vote submitted, try again.']
+        return redirect(url_for("voting", election_id=clean_id,
+                                question_num=clean_num))
+
+    return render_template("first_receipt.html", test=clean_id)
 
 @main.route("/<string:election_id>/results", methods=["GET", "POST"])
 def results(election_id: str):

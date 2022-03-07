@@ -1,14 +1,20 @@
 import sqlite3
 import os
 from typing import Optional, List, Tuple, Dict, Any
+from ast import literal_eval
+from base64 import b64decode
 
-from helpers import _getVoters, validateHash
+from helpers import (_getVoters, validateHash, bytestrToPoint, pointToBytestr,
+                     generateSession, parseTime, bytestrToSKey, sKeyToBytestr)
 from Election import Election
 from Status import Status, checkStatus
 from Question import Question
-from helpers import generateSession, parseTime
+from crypto import generateKeyPair
 
 import click
+from gmpy2 import mpz
+from ecdsa import SigningKey
+from ecdsa.ellipticcurve import Point
 from flask import Flask, current_app, g
 from flask.cli import with_appcontext
 
@@ -18,7 +24,8 @@ from flask.cli import with_appcontext
 choiceSql = """INSERT INTO choices
 (question_id, index_num, text) VALUES (?, ?, ?);"""
 questionSql = """INSERT INTO questions
-(question_id, text, question_num, num_answers) VALUES (?, ?, ?, ?);"""
+(question_id, text, question_num, num_answers, gen_2)
+VALUES (?, ?, ?, ?, ?);"""
 electionSql = """INSERT INTO elections
 (election_id, title, start_time, end_time) VALUES (?, ?, ?, ?);"""
 electionQuestionSql = """INSERT INTO election_questions
@@ -32,7 +39,7 @@ fetchElection = """SELECT title, start_time, end_time
 FROM elections
 WHERE election_id = ? LIMIT 1;"""
 
-fetchQuestions = """SELECT question_id, text, question_num, num_answers
+fetchQuestions = """SELECT question_id, text, num_answers, gen_2
 FROM questions NATURAL JOIN election_questions
 WHERE election_id = ? ORDER BY question_num ASC;"""
 
@@ -40,7 +47,7 @@ fetchChoices = """SELECT text
 FROM choices
 WHERE question_id = ? ORDER BY index_num ASC;"""
 
-fetchElectionQuestion = """SELECT question_id, text, num_answers
+fetchElectionQuestion = """SELECT question_id, text, num_answers, gen_2
 FROM questions NATURAL JOIN election_questions
 WHERE (election_questions.election_id = ?) AND (questions.question_num = ?);"""
 
@@ -62,6 +69,28 @@ WHERE election_id = ? LIMIT 1;"""
 checkElectionDates = """SELECT start_time, end_time
 FROM elections
 WHERE election_id = ? LIMIT 1;"""
+
+# ballot operations
+fetchTopBallotID = """SELECT MAX(ballot_id) as max_id
+FROM ballots
+WHERE question_id = ? LIMIT 1;"""
+
+insertNewBallot = """INSERT INTO ballots
+(ballot_id, first_sign, first_hash, second_sign, question_id, was_audited,
+random_receipt, vote_receipt, random_secret, vote_secret, r_1, r_2, c_1, c_2)
+VALUES (?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?);"""
+
+updateFirstReceipt = """UPDATE ballots
+SET first_sign = ?, first_hash = ?
+WHERE ballot_id = ?;"""
+
+# key operations
+deleteKeys = """DELETE FROM keys;"""
+
+insertKeys = """INSERT INTO keys (private_k, public_k)
+VALUES (?, ?);"""
+
+fetchKey = """SELECT private_k FROM keys LIMIT 1;"""
 
 def getDBConnection() -> Optional[sqlite3.Connection]:
     """Creates a Connection object that is reused with the special 'g' variable.
@@ -108,10 +137,32 @@ it will CLEAR ALL DATA in the database so use it carefully.
     finally:
         con.close()
 
+@click.command('init-keys')
+@with_appcontext
+def initKeys() -> Optional[bool]:
+    """Code to generate and store a public-private key pair. Note running this
+command will overwrite the previous key pair!"""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        private, public = generateKeyPair()
+        cur.execute(deleteKeys)
+        cur.execute(insertKeys, (sKeyToBytestr(private), sKeyToBytestr(public)))
+        con.commit()
+        click.echo("New key pair successfully generated!")
+        return True
+    except Exception as e:
+        click.echo(f"Could not make key pair: {e}")
+        return None
+    finally:
+        cur.close()
+
 def initApp(main: Flask) -> None:
     main.teardown_appcontext(closeDB)
-    # 'flask init-db' now initialises the DB
     main.cli.add_command(initDB)
+    main.cli.add_command(initKeys)
 
 def insertVoters(election_id: str, filepath: str, delim: str,
                  cur: sqlite3.Cursor) -> Optional[bool]:
@@ -196,7 +247,7 @@ check that you have typed it in correctly and try again.")
 check that you have typed it in correctly and try again.")
             raise Exception
         election_questions = []
-        for question_id, query, index_num, max_answers in rows:
+        for question_id, query, max_answers, g2 in rows:
             sub_rows = cur.execute(fetchChoices, (question_id,)).fetchall()
             if sub_rows is None:
                 errors.append(f"No choices found for question: {index_num} in\
@@ -204,7 +255,9 @@ election {election_id}.")
                 raise Exception
             choices = [row['text'] for row in sub_rows]
             election_questions.append(Question(question_id, query, max_answers,
-                                               choices))
+                                               choices, bytestrToPoint(g2)
+                                               )
+                                      )
         new_election = Election(election_id, title, election_questions,
                                 start_time, end_time)
         return new_election, errors
@@ -311,13 +364,91 @@ object from the database if possible; otherwise return None."""
         row = cur.execute(fetchElectionQuestion, (election_id, question_num)).fetchone()
         if not row:
             return None
-        question_id, query, num_answers = row
+        question_id, query, num_answers, g2 = row
         rows = cur.execute(fetchChoices, (question_id,)).fetchall()
         if not rows:
             return None
-        return Question(question_id, query, num_answers, choices=[choice['text'] for choice in rows])
+        return Question(question_id, query, num_answers,
+                        [choice['text'] for choice in rows],
+                        bytestrToPoint(g2)
+                        )
     except Exception as e:
         print(e)
         return None
     finally:
         cur.close()
+
+def getNewBallotID(question_id: str) -> Optional[int]:
+    """Returns a new ballot ID for the given question."""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        row = cur.execute(fetchTopBallotID, (question_id,)).fetchone()
+        if not row:
+            return None
+        # base case for the first ballot
+        if row['max_id'] is None:
+            return 0
+        return int(row['max_id']) + 1
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+
+def getPrivateKey() -> Optional[SigningKey]:
+    """Returns the private key for the current database."""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        row = cur.execute(fetchKey).fetchone()
+        if row is None:
+            return None
+        return bytestrToSKey(row['private_k'])
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+
+def insertBallot(ballot_id: int, question_id: str, r: mpz, vote: int, R: Point,
+                 Z: Point, r_1: mpz, r_2: mpz, c_1: mpz, c_2: mpz) \
+                 -> Optional[bool]:
+    """Inserts a ballot for a given vote with its receipts and secrets."""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        cur.execute(insertNewBallot, (ballot_id, question_id, pointToBytestr(R),
+                                      pointToBytestr(Z), hex(r)[2:], vote, hex(r_1)[2:],
+                                      hex(r_2)[2:], hex(c_1)[2:], hex(c_2)[2:]))
+        con.commit()
+        return True
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+
+def updateReceipt(signature: str, data_hash: str, ballot_id: int) \
+    -> Optional[bool]:
+    """Updates """
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        cur.execute(updateFirstReceipt, (signature, data_hash, ballot_id))
+        con.commit()
+        return True
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+    
