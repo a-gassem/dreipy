@@ -85,7 +85,7 @@ class QuestionForm(FlaskForm):
         """Validator for questions that only allow 1 choice."""
         if form.expected_choices != 1:
             return
-        if len(field.data) != 1:
+        if field is None or len(field.data) != 1:
             raise ValidationError("Bad number of choices (expected 1)")
         try:
             choice_index = int(field.data)
@@ -99,7 +99,7 @@ class QuestionForm(FlaskForm):
         """Validator for questions that require more than 1 choices."""
         if form.expected_choices == 1:
             return
-        if len(field.data) != form.expected_choices:
+        if field is None or len(field.data) != form.expected_choices:
             raise ValidationError(f"Bad number of choices (expected {form.expected_choices})")
         try:
             for entry in field.data:
