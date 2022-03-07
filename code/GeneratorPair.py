@@ -48,64 +48,74 @@ https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf
     
 """
 
+import gmpy2
+from gmpy2 import mpz, powmod, divexact
+
 from ecdsa import SigningKey, NIST256p
+from ecdsa.ellipticcurve import Point, INFINITY
 from cryptography.hazmat.primitives import hashes
-from . import _hashElection
 
+# first generator, g, instantiated with domain parameters of NIST
+# ecdsa.ellipticcurve.PointJacobi
+g1 = NIST256p.generator
+
+# ecdsa.ellipticcurve.CurveFp
+curve = NIST256p.curve
+
+# curve.a() was returning -3 which is incorrect???
+a = mpz(int("ffffffff00000001000000000000000000000000fffffffffffffffffffffffc",
+            16))
+b = mpz(curve.b())
+q = mpz(curve.p())
+cofactor = mpz(curve.cofactor())
+n = mpz(g1.order())
 class GeneratorPair:
-
-    # first generator, g, instantiated with domain parameters of NIST
-    g1 = NIST256p.generator
-    curve = NIST256p.curve
-    a = curve.a
-    b = curve.b
-    p = curve.p
-    cofactor = curve.cofactor
-    n = g1.order
-
     def _hashElection(election_id: str, count: int) -> int:
         """Returns a large integer derived from a SHA-256 hash of the election
 id, current iteration of the parent loop, and the generator for the EC being
 used."""
         digest = hashes.Hash(hashes.SHA256())
-        digest.update(bytearray(a))
-        digest.update(bytearray(b))
-        digest.update(bytearray(cofactor))
-        digest.update(bytearray(p))
-        digest.update(bytearray(n))
+        digest.update(bytes.fromhex(hex(a)[2:]))
+        digest.update(bytes.fromhex(hex(b)[2:]))
+        digest.update(bytes(str(cofactor), 'utf-8'))
+        digest.update(bytes.fromhex(hex(q)[2:]))
+        digest.update(bytes.fromhex(hex(n)[2:]))
         
         # use generator, election ID and current iteration for digest
-        digest.update(bytearray(g1))
-        digest.update(bytearray(election_id))
-        digest.update(bytearray(str(count)))
+        digest.update(g1._compressed_encode())
+        digest.update(bytes(election_id, 'utf-8'))
+        digest.update(bytes(str(count), 'utf-8'))
         return int.from_bytes(digest.finalize(), byteorder="big")
+
+    def _eulerCriterion(num: mpz) -> bool:
+        """Euler's criterion. q is an odd prime > 2.
+https://en.wikipedia.org/wiki/Euler%27s_criterion"""
+        return powmod(num, divexact(q-1, 2), q)
 
     def __init__(self, election_id: str):
         # generate pair of EC points using NIST prime field (length 256b)
         # prime256v1
-
-        # use election id as parameter for uniqueness????
-        n = g1.order()
+        self.g1 = g1
         
-
         # manually create second generator according to supervisor's algorithm
         count = 0
         while True:
-            x = _hashElection(election_id, count)
-            
+            x = mpz(GeneratorPair._hashElection(election_id, count))
             # Compute z = x^3 + ax + b
-            z = (x**3 + a * x + b) % p
+            z = (powmod(x, 3, q) + (a*x + b)) % q
 
             # Check if z has a square root, i.e., the Lengendre symbol = 1
-            if _hasSquare(z):
+            if GeneratorPair._eulerCriterion(z) == 1:
 
                 # We can use Shanks' algorithm to compute a square root of z mod q
                 # But since q = 3 mod 4, we can do it in a simpler way:
                 # sqr(z) = z^((q+1)/4) mod q
-
-                y = pass
+                y = powmod(z, divexact(q+1, 4), q)
 
                 # check the point is actually on the curve (i.e. in the group
                 # we defined)
-                g2 = pass
+                self.g2 = Point(curve, x, y)
+                
+                if (self.g2 != INFINITY) and ((self.g2 * cofactor) != INFINITY):
+                    break
             count += 1
