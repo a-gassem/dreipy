@@ -1,15 +1,23 @@
 from pyisemail import is_email
 from pyisemail.diagnosis import InvalidDiagnosis, ValidDiagnosis
+from gmpy2 import mpz, powmod
+from ecdsa import SigningKey, NIST256p
+from ecdsa.ellipticcurve import Point
 import jsonpickle
 
 from Voter import Voter
 from Election import Election
 from Question import Question
+from crypto import (generateRandSecret, signData, generateR, generateZ,
+                    generateZKProof, generatePair, hashString)
 
 from uuid import uuid4
+from ast import literal_eval
+from base64 import b64decode, b64encode
 from datetime import datetime
 from typing import Union, Dict, Any, Tuple, List, Generic, Optional
 import csv
+import json
 import os
 
 
@@ -77,11 +85,12 @@ to create an Election object and return it; otherwise return None"""
     # ordering of our lists when we iterate through them
     try:
         for questionNum, qDict in sorted(questions.items()):
-            choiceObjs = []
-            for choiceNum, choice in sorted(qDict['choices'].items()):
-                choiceObjs.append(choice)
-            questionObjs.append(Question(makeID(), qDict['query'],
-                                         qDict['maxanswers'], choiceObjs))
+            choices = [choice for choiceNum, choice \
+                       in sorted(qDict['choices'].items())]
+            q_id = makeID()
+            gen_1, gen_2 = generatePair(q_id)
+            questionObjs.append(Question(q_id, qDict['query'],
+                                         qDict['maxanswers'], choices, gen_2))
         return Election(makeID(), electionDict['title'], questionObjs,
                         start_time, end_time)
     except Exception as e:
@@ -198,7 +207,71 @@ details are stored in the file"""
                                 email, dob, "SOME_HASH"))
     return voters
 
+def bytestrToPoint(bytestring: str) -> Point:
+    return Point.from_bytes(NIST256p.curve, b64decode(literal_eval(bytestring)))
+
+def pointToBytestr(point: Point) -> str:
+    return str(b64encode(point.to_bytes()))
+
+def sKeyToBytestr(key: SigningKey) -> str:
+    return str(b64encode(key.to_string()))
+
+def bytestrToSKey(bytestring: str) -> SigningKey:
+    return SigningKey.from_string(b64decode(literal_eval(bytestring)),
+                                  curve=NIST256p)
+
 def validateHash(user_code: str, db_hash: str) -> bool:
     """Given a user's election code, checks that its hash matches with the stored
 value when passed through hash function."""
     return user_code == db_hash
+
+def firstReceipt(question: Question, choices: List[int]) \
+    -> Optional[str]:
+    from db import getNewBallotID, insertBallot, updateReceipt, getPrivateKey
+    
+    ## go through all the chosen answers to do proofs and add to receipt
+    gen_2 = question.gen_2
+    all_choices = [i for i in range(len(question.choices))]
+    ballot_id = getNewBallotID(question.question_id)
+    receipt_data = {"question_id":question.question_id,
+                    "ballot_id":str(ballot_id),
+                    "choices":[]}
+    for choice in all_choices:
+        voted = choice in choices
+        
+        # Get a random secret
+        r = generateRandSecret()
+        
+        # Make first receipt
+        R = generateR(gen_2, r)
+        
+        # Make second receipt
+        Z = generateZ(r, choice)
+
+        # Make proof
+        r_1, r_2, c_1, c_2 = generateZKProof(gen_2, R, Z, r, voted,
+                                             question.question_id,
+                                             choice, ballot_id)
+
+        # Add ballot to question
+        if insertBallot(ballot_id, question.question_id, r,
+                        choice, R, Z, r_1, r_2, c_1, c_2) is None:
+            return None
+        receipt_data['choices'].append({
+            "choice":str(choice),
+            "Z":pointToBytestr(Z),
+            "R":pointToBytestr(R),
+            "c_1":str(c_1),
+            "c_2":str(c_2),
+            "r_1":str(r_1),
+            "r_2":str(r_2)
+            })
+
+    ## Get hash of data and insert into database with our signature; updating all
+    #  ballots
+    json_data = json.dumps(receipt_data)
+    data_hash = hashString(json_data)
+    signature = signData(data_hash, getPrivateKey())
+    updateReceipt(signature, data_hash, ballot_id)
+
+    return json_data

@@ -3,6 +3,8 @@ from Question import Question
 from Status import Status, checkStatus
 from datetime import datetime
 
+from base64 import b64encode
+
 class Election():
     """This class is responsible for containing the general data for a specific
 election: its questions, the start/end times and ???
@@ -23,13 +25,17 @@ Attributes:
 Methods:
 """
     
-    def makeQuestionTuples(questionList) -> List[Tuple[str, str, int, int]]:
+    def makeQuestionTuples(qList) \
+        -> List[Tuple[str, str, int, int, str, str, str, str]]:
         """Returns a list of SQL friendly tuples for all the Questions in the
-Election, i.e: (question_id, query, question_num, num_answers)"""
+Election, i.e: (question_id, query, question_num, num_answers, str(bytes(g2)))
+"""
         questionTups = []
-        for i in range(len(questionList)):
-            questionTups.append((questionList[i].question_id, questionList[i].query, i+1,
-                                 questionList[i].max_answers))
+        for i in range(len(qList)):
+            questionTups.append((qList[i].question_id, qList[i].query, i+1,
+                                 qList[i].max_answers,
+                                 str(b64encode(qList[i].gen_2.to_bytes()))
+                                 ))
         return questionTups
 
     def longTime(time_obj: datetime) -> str:

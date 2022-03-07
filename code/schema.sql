@@ -4,6 +4,12 @@ DROP TABLE IF EXISTS questions;
 DROP TABLE IF EXISTS ballots;
 DROP TABLE IF EXISTS choices;
 DROP TABLE IF EXISTS election_questions;
+DROP TABLE IF EXISTS keys;
+
+CREATE TABLE keys (
+  private_k VARCHAR NOT NULL,
+  public_k VARCHAR NOT NULL
+);
 
 CREATE TABLE voters (
   voter_id VARCHAR PRIMARY KEY,
@@ -33,19 +39,24 @@ CREATE TABLE questions (
   num_answers INT NOT NULL CONSTRAINT pos_answers CHECK (num_answers > 0),
   tally_total BIGINT CONSTRAINT pos_tally CHECK (tally_total >= 0),
   sum_total BIGINT CONSTRAINT pos_sum CHECK (sum_total >= 0),
-  generator_1 BIGINT CONSTRAINT pos_gen1 CHECK (generator_1 > 0),
-  generator_2 BIGINT CONSTRAINT pos_gen2 CHECK (generator_2 > 0)
+  gen_2 VARCHAR NOT NULL
 );
 
 CREATE TABLE ballots (
-  ballot_id INT PRIMARY KEY,
+  ballot_id BIGINT NOT NULL,
+  first_sign VARCHAR,
+  first_hash VARCHAR,
+  second_sign VARCHAR,
   question_id VARCHAR NOT NULL,
-  was_audited BOOLEAN NOT NULL,
-  vote_receipt INT NOT NULL,
-  random_receipt INT NOT NULL,
-  proof_wf INT NOT NULL,
-  vote_secret INT,
-  random_secret INT,
+  was_audited BOOLEAN,
+  random_receipt VARCHAR NOT NULL,
+  vote_receipt VARCHAR NOT NULL,
+  random_secret BIGINT,
+  vote_secret BIGINT,
+  r_1 VARCHAR NOT NULL,
+  r_2 VARCHAR NOT NULL,
+  c_1 VARCHAR NOT NULL,
+  c_2 VARCHAR NOT NULL,
   FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE
 );
 
