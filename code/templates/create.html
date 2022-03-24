@@ -9,10 +9,8 @@
 <ol>
     <li>Set the start and end dates for the election.</li>
     <li>Write the questions and answers.</li>
-    <li>Upload an XML file containing the data for all the voters in the election.</li>
+    <li>Upload a CSV file containing the data for all the voters in the election.</li>
 </ol>
-
-
 
 <form enctype="multipart/form-data" action="" method="post">
     {{ form.csrf_token }}
@@ -21,11 +19,11 @@
     {% endfor %}
     
     <h3>When is the election happening?</h3>
-    <div class="row date">
+    <div class="row-fluid date">
         {{ form.start_year.label() }}
         {{ form.start_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.start_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.start_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.start_hour(maxlength="2", class_="double", placeholder="HH") }}:{{ form.start_mins(maxlength="2", class_="double", placeholder="mm") }}:{{ form.start_secs(maxlength="2", class_="double", placeholder="ss") }}
     </div>
-    <div class="row date">
+    <div class="row-fluid date">
         {{ form.end_year.label() }}
         {{ form.end_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.end_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.end_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.end_hour(maxlength="2", class_="double", placeholder="HH") }}:{{ form.end_mins(maxlength="2", class_="double", placeholder="mm") }}:{{ form.end_secs(maxlength="2", class_="double", placeholder="ss") }}
     </div>
@@ -44,14 +42,14 @@
                 {{ form.choice_1_2.label() }}
                 {{ form.choice_1_2(placeholder="Candidate Name") }}
             </div>
-            <button class="btn disabled delete-choice" type="button">DELETE</button>
-            <button class="btn new-choice" type="button">+</button>
+            <button class="btn disabled delete-choice" type="button">Remove Choice</button>
+            <button class="btn new-choice" type="button">Add Choice</button>
             {{ form.maxanswers_1.label() }}
             {{ form.maxanswers_1() }}
         </div>
     </div>
-    <button id="delete-question" class="btn disabled" type="button">DELETE</button>
-    <button id="new-question" class="btn" type="button">+</button>
+    <button id="delete-question" class="btn disabled" type="button">Delete Question</button>
+    <button id="new-question" class="btn" type="button">Add Question</button>
     
     <h3>Who can vote in it?</h3>
     <div id="file-upload">
@@ -62,7 +60,4 @@
     </div>
     <div class="btn">{{ form.submit() }}</div>
 </form>
-
-The XML file is required so that the data for each voter can be added to the database with their name and email address to be used to distribute their login codes before the election.
-
 {% endblock %}

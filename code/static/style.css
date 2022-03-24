@@ -1,14 +1,38 @@
+body {
+    padding: 2.5%;
+}
+
 p {
     font-size: 20px;
 }
+
+.stage-one {
+    background-color: #993333;
+    color: #ffffff;
+}
+
+.stage-two {
+    background-color: #333399;
+    color: #ffffff;
+}
+
 .double {
-    width: 2ch;
+    width: 3ch;
 }
 
 .quad {
-    width: 4ch;
+    width: 6ch;
+}
+
+.row-fluid{
+    display: flex;
+    align-items: center;
+}
+
+button {
+    background-color: #666666;
 }
 
 .disabled{
-  pointer-events: none;
+    pointer-events: none;
 }

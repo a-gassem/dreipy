@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Audit or Confirm?{% endblock %}
+{% block body %}
+<h1>Would you like to AUDIT or CONFIRM your vote?</h1>
+
+{% for error in errors %}
+    <div class="error">
+        <p>{{ error }}</p>
+    </div>
+{% endfor %}
+
+<h3>Vote Receipt:</h3>
+<p>Below is a receipt of your vote; you should copy and paste it into a text file so that you can verify its data later on.</p>
+<p>You can either AUDIT your vote which will cancel your vote and take you back to the question, but showing the choice you made so that you can verify that it was recorded as cast.</p>
+<p>Or, you can CONFIRM your vote, which will submit your vote and update the tally for your chosen candidate and then take you to the next question with a new receipt.</p>
+<div class="stage-one">
+    <h2>VOTING STAGE ONE</h2>
+    <h4>Election ID: {{ session['receipt']['election_id'] }}</h4>
+    <h4>Ballot ID: {{ session['receipt']['ballot_id'] }}</h4>
+    <h4>Question ID: {{ session['receipt']['question_id'] }}</h4>
+    <h4>Vote hash: {{ session['hash'] }}</h4>
+    <h4>Proof Num C: {{ session['receipt']['num_proof_c'] }}</h4>
+    <h4>Proof Num R: {{ session['receipt']['num_proof_r'] }}</h4>
+    {% for index in len(session['receipt']['choices']) %}
+        <div class="receipt-choice">
+            <h4>Choice index: {{ index }}</h4>
+            <h4>R: {{ session['receipt']['choices'][index]['R'] }}</h4>
+            <h4>Z: {{ session['receipt']['choices'][index]['Z'] }}</h4>
+            <h4>Proof C1: {{ session['receipt']['choices'][index]['proof']['c_1'] }}</h4>
+            <h4>Proof C2: {{ session['receipt']['choices'][index]['proof']['c_2'] }}</h4>
+            <h4>Proof R1: {{ session['receipt']['choices'][index]['proof']['r_1'] }}</h4>
+            <h4>Proof R2: {{ session['receipt']['choices'][index]['proof']['r_2'] }}</h4>
+        </div>
+    {% endfor %}
+</div>
+<div class="sign">
+    <h4>Signature: {{ session['first_sign'] }}</h4>
+    <h4>Public key: {{ session['public_key'] }}</h4>
+</div>
+
+<form action="" method="post">
+    {{ form.csrf_token }}
+    {{ form.audit() }}
+    {{ form.confirm() }}
+</form>
+
+{% endblock %}

@@ -25,6 +25,7 @@
         </div>
     {% endfor %}
     
+    <!-- Commented out to look better
     {% for line in samples %}
         <div class="confirm-voter">
             <h3>Sample voter:</h3>
@@ -33,7 +34,7 @@
             <h4>Postcode: {{ line['postcode'] }}</h4>
             <h4>Email address: {{ line['email'] }}</h4>
         </div>
-    {% endfor %}
+    {% endfor %}-->
     {% if warnings %}
         <h3>Some potentially invalid emails were included in your CSV:</h3>
         <ul>

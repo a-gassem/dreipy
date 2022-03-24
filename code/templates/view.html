@@ -27,13 +27,10 @@
         <!-- 2 buttons, one to vote, another to view bulletin board. grey one or both out depending on the status -->
         {% if election.status.name == "PENDING" %}
             <div class="btn disabled">Vote</div>
-            <div class="btn disabled">Results</div>
-        {% elif election.status.name == "ONGOING" %}
-            <div class="btn"><a href="{{ url_for('voteLogin') }}?election_id={{ election.election_id }}">Vote</a></div>
-            <div class="btn disabled">Results</div>
+            <div class="btn disabled">Bulletin Board</div>
         {% else %}
-            <div class="btn disabled">Vote</div>
-            <div class="btn"><a href="{{ url_for('results') }}?election_id={{ election.election_id }}">Results</a></div>
+            <div class="btn"><a href="{{ url_for('voteLogin') }}?election_id={{ election.election_id }}">Vote</a></div>
+            <div class="btn"><a href="{{ url_for('results', election_id=election.election_id) }}">Bulletin Board</a></div>
         {% endif %}
     </div>
 {% endif %}
