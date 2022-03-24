@@ -109,6 +109,10 @@ class QuestionForm(FlaskForm):
         except TypeError:
             raise ValidationError("All choice indices must be integers")
 
+class AuditForm(FlaskForm):
+    audit = SubmitField("Audit")
+    confirm = SubmitField("Confirm")
+
 def validateDates(form: Dict) \
     -> Tuple[Optional[datetime], Optional[datetime], List[str]]:
     errors = []
