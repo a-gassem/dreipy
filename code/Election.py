@@ -30,11 +30,12 @@ Methods:
         """Returns a list of SQL friendly tuples for all the Questions in the
 Election, i.e: (question_id, query, question_num, num_answers, str(bytes(g2)))
 """
+        from helpers import pointToBytestr
         questionTups = []
         for i in range(len(qList)):
             questionTups.append((qList[i].question_id, qList[i].query, i+1,
                                  qList[i].max_answers,
-                                 str(b64encode(qList[i].gen_2.to_bytes()))
+                                 pointToBytestr(qList[i].gen_2)
                                  ))
         return questionTups
 
