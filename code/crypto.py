@@ -43,7 +43,6 @@ Elliptic curves:
 
 Recommended prime field elliptic curves:
 https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf
-    
 """
 
 import gmpy2
@@ -79,9 +78,13 @@ def hashString(string: str) -> str:
     return digest.finalize().hex()
 
 def signData(string: str, private: SigningKey) -> str:
-    """Signs the passed string with the stored private key, return as b64 encoded
-string."""
-    return str(b64encode(private.sign(bytes(string, 'utf-8'))))
+    """Signs the passed string with the stored private key, return as hex string."""
+    return private.sign(bytes(string, 'utf-8')).hex()
+
+def verifyData(data: str, key: VerifyingKey, signature: str) -> bool:
+    """Verifies that some given data was signed with the SigningKey paired
+with the passed VerifyingKey based on a signature in hex form."""
+    return key.verify(bytes.fromhex(signature), bytes(data, 'utf-8'))
 
 def generateKeyPair() -> Tuple[mpz, mpz]:
     """Generates a public/private key pair for the current curve"""
@@ -152,54 +155,124 @@ def generateZ(r: mpz, v: int) -> Point:
     """Returns a Point p = g1^r * g1^v"""
     return (g1 * r) + (g1 * v)
 
-def generateZKProof(g2: Point, R: Point, Z: Point, r: mpz, voted: bool,
-                    question_id: str, vote_id: int, ballot_id: str) \
-                    -> Tuple[mpz, mpz, mpz, mpz]:
-    """Zero-knowledge proof of knowledge of r
-0. r is random in [1, n-1]; R = g2^r
-1. choose random c in [1, n-1]
-2. calculate t = (r + cw) mod p; user checks g^t = rR^c
+def generateZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz) \
+    -> Tuple[mpz, mpz, mpz, mpz]:
+    """Zero-knowledge proof of knowledge and equality of the following discrete
+logarithms:
+P_K{S: (G_1 = g_1^S AND G_2 = g_2^S) OR (G_3 = g_3^S AND G_3 = g_3^S)}
+
+((R = g2^r) AND ((Z div g1) = g1^r)) OR ((R = g2^r) AND (Z = g1^r))
+
+We are proving that either we didn't vote for this (v = 0) or we did (v = 1)
+
+We generate an R and Z for each of the m choices. We need to do a proof of
+well-formedness for each of these R and Z results and then an aggregate proof
+to show that exactly k of the votes are 1.
+
+This method needs to therefore be run for each R, Z, r tuple.
 """     
     w = generateRandSecret()
+    r_2 = generateRandSecret()
+    c_2 = generateRandSecret()
 
-    if voted:
-        r_1 = generateRandSecret()
-        c_1 = generateRandSecret()
-        
-        t_1 = (g1 * r_1) + (Z * c_1)
-        t_2 = (g2 * r_1) + (R * c_1)
-        t_3 = g1 * w
-        t_4 = g2 * w
+    # Calculate the two halves of the disjunctive proof (G_1, G_2) and (G_3, G_4)
+    G_1 = Z + (-g1)
+    G_2 = R
+    G_3 = Z
+    G_4 = R
+    
+    t_1 = g1 * w
+    t_2 = g2 * w
+    t_3 = (g1 * r_2) + (G_3 * c_2)
+    t_4 = (g2 * r_2) + (G_4 * c_2)
 
-        message = f"""{question_id},{vote_id},{ballot_id},
-{self.g1.to_bytes().hex()},{self.g2.to_bytes().hex()},
-{Z.to_bytes().hex()},{R.to_bytes().hex()},
-{t_1.to_bytes().hex()},{t_2.to_bytes().hex()},
-{t_3.to_bytes().hex()},{t_4.to_bytes().hex()}"""
+    # calculate proof hash
+    c = proofZKHash(question_id, g1, G_1, g2, G_2, g3, G_3, g4, G_4, t_1, t_2,
+                    t_3, t_4)
 
-        c = hashElectionString(message)
-        c_2 = mpz((c - c_1) % n)
-        r_2 = mpz((w - (c_2 * r)) % n)
-        
-    else:
-        r_2 = generateRandSecret()
-        c_2 = generateRandSecret()
-        
-        t_1 = g1 * w
-        t_2 = g2 * w
-        t_3 = (g1 * r_2) + ((Z + (-g1)) * c_2)
-        t_4 = (g2 * r_2) + (R * c_2)
-        
-        message = f"""{question_id},{vote_id},{ballot_id},
-{g1.to_bytes().hex()},{g2.to_bytes().hex()},
-{Z.to_bytes().hex()},{R.to_bytes().hex()},
-{t_1.to_bytes().hex()},{t_2.to_bytes().hex()},
-{t_3.to_bytes().hex()},{t_4.to_bytes().hex()}"""
+    # calculate remaining secrets and return
+    c_1 = c - c_2
+    return (c_1, c_2, w - (c_1 * r), r_2)
 
-        c = hashElectionString(message)
-        c_1 = mpz((c - c_2) % n)
-        r_1 = mpz((w - (c_1 * r)) % n)
-    return (r_1, r_2, c_1, c_2)
+def verifyZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz,
+                  proof_c1: mpz, proof_c2: mpz, proof_r1: mpz, proof_r2: mpz) \
+                  -> bool:
+    G_1 = Z + (-g1)
+    G_2 = R
+    G_3 = Z
+    G_4 = R
 
-def generateNumProof(self, R: List[Point], Z: List[Point]) -> List[mpz]:
-    return
+    t_1 = (g1 * proof_r1) + (G_1 * proof_c1)
+    t_2 = (g2 * proof_r1) + (G_2 * proof_c1)
+    t_3 = (g1 * proof_r2) + (G_1 * proof_c2)
+    t_4 = (g2 * proof_r2) + (G_2 * proof_c2)
+
+    c = proofZKHash(question_id, g1, G_1, g2, G_2, g3, G_3, g4, G_4, t_1, t_2,
+                    t_3, t_4)
+
+    return (proof_c1 + proof_c2) == c
+
+## can probs to some kwargs** shenanigans here...
+def proofNumHash(proof_id: str, g1: Point, G_1: Point, g2: Point, G_2: Point,
+                 t_1: Point, t_2: Point) -> mpz:
+    """Returns a hash calculated by a tuple of arguments and passed through."""
+    tup = (proof_id, pointToBytestr(g1), pointToBytestr(G_1), pointToBytestr(g2),
+           pointToBytestr(G_2), pointToBytestr(t_1), pointToBytestr(t_2))
+    return mpz(int.from_bytes(hashString(str(tup)), byteorder="big"))
+
+def proofZKHash(proof_id: str, g1: Point, G_1: Point, g2: Point, G_2: Point,
+                g3: Point, G_3: Point, g4: Point, G_4: Point, t_1: Point,
+                t_2: Point, t_3: Point, t_4: Point) -> mpz:
+    tup = (proof_id, pointToBytestr(g1), pointToBytestr(G_1), pointToBytestr(g2),
+           pointToBytestr(G_2), pointToBytestr(g3), pointToBytestr(G_3),
+           pointToBytestr(g4), pointToBytestr(G_4), pointToBytestr(t_1),
+           pointToBytestr(t_2), pointToBytestr(t_3), pointToBytestr(t_4))
+    return mpz(int.from_bytes(hashString(str(tup)), byteorder="big"))
+
+def generateNumProof(question_id: str, g2: Point,  R_list: List[Point],
+                     Z_list: List[Point], r_list: List[mpz], num_choices: int) \
+                     -> Tuple[mpz, mpz]:
+    """Zero-knowledge proof of knowledge and equality of form:
+
+P_K{S: G_1 = g_1^S AND G_2 = g_2^S}
+
+that exactly k votes in a ballot are 1:
+((PROD{Z} div g1^k = g1^r_sum) AND (PROD{R} = g2^r_sum))
+"""
+    from helpers import pointToBytestr
+    # choose random w in group Z order q
+    w = generateRandSecret()
+
+    # calculate exponentiations with our random value
+    t_1 = g1 * w
+    t_2 = g2 * w
+
+    # Calculate products (note that in elliptic curve settings multiplication
+    # is done successively adding points on the curve)
+    G_1 = sum(Z_list) + (-g1 * num_choices)
+    G_2 = sum(R_list)
+
+    # calculate proof hash
+    c = proofHash(question_id, g1, G_1, g2, G_2, t_1, t_2)
+
+    # calculate our secret values (c, r) by summing all individual secrets
+    return (c, w - (c * sum(r_list)))
+
+def verifyNumProof(question_id: str, g2: Point, R_list: List[Point],
+                   Z_list: List[Point], proof_c: mpz, proof_r: mpz,
+                   num_choices: int) -> bool:
+    """Returns whether or not a given proof of knowledge and equality for the
+number of votes in a tally is valid.
+"""
+    from helpers import pointToBytestr
+
+    # calculate known products
+    G_1 = sum(Z_list) + (-g1 * num_choices)
+    G_2 = sum(R_list)
+
+    # calculate exponentiations with proofs and bases
+    t_1 = (g1 * proof_r) + (G_1 * proof_c)
+    t_2 = (g2 * proof_r) + (G_2 * proof_c)
+
+    # compare hashes
+    return proof_c == proofHash(question_id, g1, G_1, g2, G_2, t1, t2)

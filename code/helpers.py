@@ -1,20 +1,22 @@
 from pyisemail import is_email
 from pyisemail.diagnosis import InvalidDiagnosis, ValidDiagnosis
 from gmpy2 import mpz, powmod
-from ecdsa import SigningKey, NIST256p
+from ecdsa import SigningKey, VerifyingKey, NIST256p
 from ecdsa.ellipticcurve import Point
 import jsonpickle
+import gmpy2
 
 from Voter import Voter
 from Election import Election
 from Question import Question
-from crypto import (generateRandSecret, signData, generateR, generateZ,
-                    generateZKProof, generatePair, hashString)
+from crypto import (generateRandSecret, generateR, generateZ, generateZKProof,
+                    generatePair, hashString)
 
 from uuid import uuid4
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from datetime import datetime
+from secrets import token_urlsafe, token_hex
 from typing import Union, Dict, Any, Tuple, List, Generic, Optional
 import csv
 import json
@@ -24,7 +26,7 @@ import os
 DOB_FORMAT = "%d-%m-%Y"
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-CSV_HEADERS = sorted(['fname', 'lname', 'postcode', 'email', 'dob'])
+CSV_HEADERS = sorted(['fname', 'lname', 'postcode', 'uname', 'dob', 'pass'])
 
 # maximum size of our sample from the CSV
 SAMPLE_SIZE = 5
@@ -33,6 +35,11 @@ SAMPLE_SIZE = 5
 FNAME_MAX_LENGTH = 35
 LNAME_MAX_LENGTH = 35
 POSTCODE_MAX_LENGTH = 8
+
+# how short to truncate a hash digest to
+HASH_LENGTH = 5
+
+SECRET_BYTES = 32
 
 # Code for these case insensitive classes used from
 # https://www.pythonpool.com/python-csv-dictreader/
@@ -49,10 +56,9 @@ class InsensitiveDictReader(csv.DictReader):
     def next(self):
         return InsensitiveDict(csv.DictReader.next(self))
 
-## TODO!!!
 def generateSession() -> str:
     """Returns a cryptographically secure session ID"""
-    return "TODO"
+    return token_urlsafe(SECRET_BYTES)
 
 def _makeFolder(path: str, permissions: int) -> None:
     """Helper procedure to create a folder that may or may not already exist."""
@@ -62,10 +68,9 @@ def _makeFolder(path: str, permissions: int) -> None:
         pass
 
 def makeID() -> str:
-    """Generates a random, unique ID by making a UUID 4, converting to hex and
-taking its string representation. Note, this is not cryptographically secure,
-it's simply for indexing in the database!"""
-    return str(uuid4().hex)
+    """Generates a random, unique ID from token_hex (not long enough to be
+cryptographically secure!!)"""
+    return token_hex(32)[:6].upper()
 
 def parseTime(time_str: str) -> Optional[datetime]:
     """Returns a datetime object constructed from parsing the input string. If
@@ -160,10 +165,10 @@ correct delimiter? Did you spell one of your headers wrong?")
 Please ensure that each date of birth is in the form DD-MM-YYYY.")
                 return None, None, errors
             # email checks
-            email = row['email']
+            email = row['uname']
             if email in emails:
-                errors.append(f"Found a duplicate email address: {email}\
-. Please ensure that each email address is unique in the CSV file.")
+                errors.append(f"Found a duplicate username: {email}\
+. Please ensure that each username is unique in the CSV file.")
                 return None, None, errors
             diagnosis = is_email(email, diagnose=True)
             if isinstance(diagnosis, InvalidDiagnosis):
@@ -179,6 +184,7 @@ Please ensure that each date of birth is in the form DD-MM-YYYY.")
             row['fname'] = row['fname'][:FNAME_MAX_LENGTH]
             row['lname'] = row['lname'][:LNAME_MAX_LENGTH]
             row['postcode'] = row['postcode'][:POSTCODE_MAX_LENGTH]
+            row['pass'] = hashString(row['pass'])
             if not row['fname'] or not row['lname'] or not row['postcode']:
                 errors.append("Empty field found in CSV file. Please make sure\
  that all fields are filled out with the appropriate data.")
@@ -201,77 +207,137 @@ details are stored in the file"""
             fname = voter['fname'][:FNAME_MAX_LENGTH]
             lname = voter['lname'][:LNAME_MAX_LENGTH]
             postcode = voter['postcode'][:POSTCODE_MAX_LENGTH]
-            email = voter['email']
+            email = voter['uname']
             dob = datetime.strptime(voter['dob'], DOB_FORMAT)
+            hash = hashString(voter['pass'])
             voters.append(Voter(makeID(), election_id, fname, lname, postcode,
-                                email, dob, "SOME_HASH"))
+                                email, dob, hash))
     return voters
 
 def bytestrToPoint(bytestring: str) -> Point:
-    return Point.from_bytes(NIST256p.curve, b64decode(literal_eval(bytestring)))
+    return Point.from_bytes(NIST256p.curve, bytes.fromhex(bytestring))
 
 def pointToBytestr(point: Point) -> str:
-    return str(b64encode(point.to_bytes()))
+    """Returns the hexadecimal representation of the byte-encoding of a Point
+object."""
+    return point.to_bytes().hex()
 
-def sKeyToBytestr(key: SigningKey) -> str:
-    return str(b64encode(key.to_string()))
+def sKeyToBytestr(key: Union[SigningKey, VerifyingKey]) -> str:
+    """Returns the hexadecimal representation of the byte-encoding of a
+SigningKey or VerifyingKey object."""
+    return key.to_string().hex()
+
+def bytestrToVKey(bytestring: str) -> VerifyingKey:
+    return VerifyingKey.from_string(bytes.fromhex(bytestring), curve=NIST256p)
 
 def bytestrToSKey(bytestring: str) -> SigningKey:
-    return SigningKey.from_string(b64decode(literal_eval(bytestring)),
-                                  curve=NIST256p)
+    return SigningKey.from_string(bytes.fromhex(bytestring), curve=NIST256p)
+
+def prettyReceipt(receipt: str) -> str:
+    return " ".join([receipt[i:i+5] for i in range(0, len(receipt), 5)])
 
 def validateHash(user_code: str, db_hash: str) -> bool:
     """Given a user's election code, checks that its hash matches with the stored
 value when passed through hash function."""
-    return user_code == db_hash
+    return hashString(user_code) == db_hash
 
-def firstReceipt(question: Question, choices: List[int]) \
-    -> Optional[str]:
-    from db import getNewBallotID, insertBallot, updateReceipt, getPrivateKey
+def hexToMpz(hexstring: Union[str, int]) -> mpz:
+    """Converts a hexstring to an mpz object."""
+    if isinstance(hexstring, int):
+        return mpz(hexstring)
+    return gmpy2.mpz_from_old_binary(bytes.fromhex(hexstring))
+
+def truncHash(hash_str: str) -> str:
+    """Given some string digest of a hash, truncate to HASH_LENGTH characters
+for ease of comparison for the user."""
+    return hash_str.upper()[:HASH_LENGTH]
+
+def firstReceipt(question: Question, election_id: str, session_id: str,
+                 choices: List[str]) -> Optional[dict]:
+    from db import getNewBallotID, insertBallot, getVoterFromSession
     
-    ## go through all the chosen answers to do proofs and add to receipt
+    ## go through all the possible choices to do proofs and add to receipt
     gen_2 = question.gen_2
-    all_choices = [i for i in range(len(question.choices))]
-    ballot_id = getNewBallotID(question.question_id)
-    receipt_data = {"question_id":question.question_id,
-                    "ballot_id":str(ballot_id),
+    ballot_id = str(getNewBallotID(question.question_id))
+    receipt_data = {"election_d":election_id,
+                    "question_id":question.question_id,
+                    "ballot_id":ballot_id,
                     "choices":[]}
-    for choice in all_choices:
-        voted = choice in choices
+    voter_id = getVoterFromSession(session_id)
+    question_id = question.question_id
+    num_choices = len(question.choices)
+    R_list = []
+    Z_list = []
+    r_list = []
+    for choice in range(num_choices):
+        # was this choice voted on?
+        voted = str(choice) in choices
         
-        # Get a random secret
+        # Make receipts and secret
         r = generateRandSecret()
-        
-        # Make first receipt
         R = generateR(gen_2, r)
-        
-        # Make second receipt
-        Z = generateZ(r, choice)
+        Z = generateZ(r, int(voted))
 
         # Make proof
-        r_1, r_2, c_1, c_2 = generateZKProof(gen_2, R, Z, r, voted,
-                                             question.question_id,
-                                             choice, ballot_id)
+        c_1, c_2, r_1, r_2 = generateZKProof(question_id, gen_2, R, Z, r)
 
         # Add ballot to question
-        if insertBallot(ballot_id, question.question_id, r,
-                        choice, R, Z, r_1, r_2, c_1, c_2) is None:
+        if insertBallot(ballot_id, question_id, r, R, Z, r_1, r_2,
+                        c_1, c_2, choice, election_id, voter_id) is None:
             return None
         receipt_data['choices'].append({
-            "choice":str(choice),
-            "Z":pointToBytestr(Z),
-            "R":pointToBytestr(R),
-            "c_1":str(c_1),
-            "c_2":str(c_2),
-            "r_1":str(r_1),
-            "r_2":str(r_2)
+            "Z":truncHash(pointToBytestr(Z)),
+            "R":truncHash(pointToBytestr(R)),
+            "proof":{
+                "c_1":truncHash(str(c_1)),
+                "c_2":truncHash(str(c_2)),
+                "r_1":truncHash(str(r_1)),
+                "r_2":truncHash(str(r_2))
+                }
             })
 
-    ## Get hash of data and insert into database with our signature; updating all
-    #  ballots
-    json_data = json.dumps(receipt_data)
-    data_hash = hashString(json_data)
-    signature = signData(data_hash, getPrivateKey())
-    updateReceipt(signature, data_hash, ballot_id)
+        # add receipts and secret to list for final proof
+        R_list.append(R)
+        Z_list.append(Z)
+        r_list.append(r)
 
-    return json_data
+    # calculate the extra proof to ensure number of choices is correct
+    num_c, num_r = generateNumProof(question_id, gen_2, R_list, Z_list, r_list,
+                                    num_choices)
+    if addNumProofs(ballot_id, num_c, num_r) is None:
+        return None
+    receipt_data['num_proof_c'] = truncHash(str(num_c))
+    receipt_data['num_proof_r'] = truncHash(str(num_r))
+
+    ## Get hash of data and insert into database with our signature, before
+    # before returning it
+    return receipt_data
+
+def auditBallot(question_id: str, ballot_id: str) -> Optional[dict]:
+    """Marks a ballot as 'audited' and creates a new signature."""
+    from db import getBallotData, updateAuditBallot
+    receipt_list = getBallotData(ballot_id)
+    if receipt_list is None:
+        return None
+    receipt_data = {
+        "ballot":"AUDITED",
+        "question_id":question_id,
+        "ballot_id":ballot_id,
+        "choices":[]}
+    for R, Z, secret, index, choice, c_1, c_2, r_1, r_2 in receipt_list:
+        receipt_data['choices'].append({
+            "R":R,
+            "Z":Z,
+            "secret": secret,
+            "vote":choice,
+            "choice_id":index,
+            "proof":{
+                "c_1":c_1,
+                "c_2":c_2,
+                "r_1":r_1,
+                "r_2":r_2
+                }
+            })
+    if updateAuditBallot(ballot_id, audited=True) is None:
+        return None
+    return receipt_data
