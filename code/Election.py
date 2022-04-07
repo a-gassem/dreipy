@@ -14,6 +14,7 @@ Attributes:
 - title         -- the title for the election
 - start_time    -- the date/time that the election opens for voting
 - end_time      -- the date/time that the election closes for voting
+- contact       -- the contact email of the election organiser
 - questions     -- list of questions for this election
 - sql_questions -- a list of tuples that are formatted to be used with Cursor.executemany()
                    when inserting this object into the database.
@@ -45,12 +46,13 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
         return time_obj.strftime("%A %d %B %Y %I:%M:%S%p")
 
     def __init__(self, election_id: str, title: str,questions: List[Question],
-                 start_time: datetime, end_time: datetime):
+                 start_time: datetime, end_time: datetime, contact: str):
         self._election_id = election_id
         self._title = title
         self._questions = questions
         self._start_time = start_time
         self._end_time = end_time
+        self._contact = contact
         self._sql_questions = Election.makeQuestionTuples(questions)
 
     @property
@@ -84,6 +86,10 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
     @property
     def sql_questions(self) -> List[Tuple[str, str, int, int]]:
         return self._sql_questions
+
+    @property
+    def contact(self) -> str:
+        return self._contact
 
     @property
     def status(self) -> Status:
