@@ -1,12 +1,12 @@
 from flask_wtf import FlaskForm
-from wtforms import (StringField, SubmitField, SelectField, FileField,
+from flask_wtf.file import FileField, FileRequired, FileAllowed
+from wtforms import (StringField, SubmitField, SelectField,
                      SelectMultipleField, RadioField)
 from wtforms.validators import DataRequired, Email, ValidationError
 from werkzeug.utils import secure_filename
-from flask import current_app
+from flask import current_app, flash
 
-from helpers import (parseTime, parseElection, mergeTime, makeID, newFilename,
-                     isCsv)
+from helpers import parseTime, parseElection, mergeTime, makeID, newFilename
 from Election import Election
 from Question import Question
 
@@ -15,38 +15,143 @@ from typing import Union, List, Tuple, Generic, Dict, Optional, Callable
 import re
 import os
 
+# maximum length of the uploaded CSV filename (number of characters)
+MAX_FILENAME_LENGTH = 50
+
 class ElectionForm(FlaskForm):
     """Form that we use when a user chooses the starting date/time for their new
 election. Note that we do not have a requirement about inputting all the fields
 because otherwise there will be an error for every separate field -- the
 parseTime() function will disallow any empty inputs anyway."""
     # for the election date/time
-    start_year = StringField("Start date and time:")
-    start_month = StringField()
-    start_day = StringField()
-    start_hour = StringField()
-    start_mins = StringField()
-    start_secs = StringField()
+    start_year = StringField("Start date and time:", validators=[DataRequired()])
+    start_month = StringField(validators=[DataRequired()])
+    start_day = StringField(validators=[DataRequired()])
+    start_hour = StringField(validators=[DataRequired()])
     
-    end_year = StringField("End date and time:")
-    end_month = StringField()
-    end_day = StringField()
-    end_hour = StringField()
-    end_mins = StringField()
-    end_secs = StringField()
+    end_year = StringField("End date and time:", validators=[DataRequired()])
+    end_month = StringField(validators=[DataRequired()])
+    end_day = StringField(validators=[DataRequired()])
+    end_hour = StringField(validators=[DataRequired()])
     
     # for the election questions and title
     title = StringField("Election Title:", [DataRequired()])
+    contact = StringField("Election organiser email address:", [DataRequired()])
     query_1 = StringField("Question text:", [DataRequired()])
     choice_1_1 = StringField("Choice:", [DataRequired()])
     choice_1_2 = StringField("Choice:", [DataRequired()])
     maxanswers_1 = SelectField("Number of answers:",
-                              choices=[(1, 1)])
+                               choices=[(1, 1)], validators=[DataRequired()])
 
     # for uploading the voter CSV file
-    file = FileField("Voter CSV File:", [DataRequired()])
+    file = FileField("Voter CSV File:", validators=[FileRequired(),
+                                                    FileAllowed(['csv'], "Only CSV files allowed.")])
     delimiter = StringField("Delimiter:", [DataRequired()], default=',')
     submit = SubmitField("Create Election")
+
+    def validate_delimiter(form: FlaskForm, field: StringField) -> None:
+        """Validation for the delimiter, ensure it is some 1-char string."""
+        if len(field.data) != 1:
+            raise ValidationError("Please enter a delimiter that is 1 character long for your CSV file.")
+
+    def validateFile(form: FlaskForm) -> Optional[str]:
+        """Make sure a CSV file of an appropriate filename length has been uploaded,
+            and save the file under a new, random file name."""
+        new_file = form.file.data
+        if len(secure_filename(new_file.filename)) > MAX_FILENAME_LENGTH:
+            flash(f"Please limit your filename length to {MAX_FILENAME_LENGTH} characters.", "error")
+            return None
+        filepath = os.path.join(current_app.config["UPLOAD_FOLDER"],
+                                newFilename())
+        new_file.save(filepath)
+        return filepath
+
+    def validateDates(form: FlaskForm) -> Optional[Tuple[datetime, datetime]]:
+        """Parse start/end times while validating them."""
+        try:
+            start_time = parseTime(mergeTime(
+                form.start_year.data, form.start_month.data, form.start_day.data,
+                form.start_hour.data))
+            end_time = parseTime(mergeTime(
+                form.end_year.data, form.end_month.data, form.end_day.data,
+                form.end_hour.data))
+            if (start_time is None):
+                flash("Badly formatted start date/time.", "error")
+                return None
+            if (end_time is None):
+                flash("Badly formatted end date/time.", "error")
+                return None
+        except AttributeError:
+            flash("Empty form field found. Please ensure that all fields are filled out", "error")
+            return None
+        if (start_time <= datetime.now()):
+            flash("Please input a start date/time after the present.", "error")
+            return None
+        if (end_time <= datetime.now()):
+            flash("Please input an end date/time after the present.", "error")
+            return None
+        if (start_time >= end_time):
+            flash("Please input an end time after the chosen start time.", "error")
+            return None
+        return (start_time, end_time)
+
+    def validateQuestions(form: FlaskForm) -> Optional[Dict]:
+        questions = {}
+        try:
+            for id, value in form.items():
+                id = str(id)
+                q_match = re.fullmatch('^query_([0-9]+)$', id, re.IGNORECASE)
+                c_match = re.fullmatch('^choice_([0-9]+)_([0-9]+)$', id, re.IGNORECASE)
+                m_match = re.fullmatch('^maxanswers_([0-9]+)$', id, re.IGNORECASE)
+                if q_match:
+                    question_num = int(q_match.group(1))
+                    new_query = str(value)
+                    if question_num in questions:
+                        if 'query' in questions[question_num]:
+                            flash(f"Multiple query text entries found for question {question_num}", "error")
+                            return None
+                        else:
+                            questions[question_num]['query'] = new_query
+                    else:
+                        questions[question_num] = {'query': new_query}
+                elif c_match:
+                    question_num = int(c_match.group(1))
+                    choice_num = int(c_match.group(2))
+                    new_choice = str(value)
+                    if question_num in questions:
+                        if 'choices' in questions[question_num]:
+                            if choice_num in questions[question_num]['choices']:
+                                flash(f"Multiple entries found for choice number {choice_num} in question {question_num}", "error")
+                                return None
+                            else:
+                                questions[question_num]['choices'][choice_num] = new_choice
+                        else:
+                            questions[question_num]['choices'] = {choice_num:new_choice}
+                    else:
+                        questions[question_num] = {f'choice_{choice_num}':new_choice}
+                elif m_match:
+                    question_num = int(m_match.group(1))
+                    num_answers = int(value)
+                    if num_answers < 1:
+                        raise ValidationError("The number of choices for a question must be at least 1.")
+                    if questionNum in questions:
+                        if 'numanswers' in questions[question_num]:
+                            flash("Multiple entries found for number of choices in question {question_num}.", "error")
+                            return None
+                        else:
+                            questions[question_num]['numanswers'] = num_answers
+                    else:
+                        questions[question_num] = {'numanswers':num_answers}
+            # after for loop, ensure that no questions ask N or more answers
+            # where N = number of answers
+            for question_num, question_dict in questions.items():
+                if question_dict['numanswers'] >= len(question_dict['choices'].items()):
+                    flash("The number of choices must be less than the number of answers", "error")
+                    return None
+            return questions
+        except ValueError:
+            flash("Invalid type encountered when parsing the questions - please check that all values are of the correct type and try again.", "error")
+            return None
 
 class ViewElectionForm(FlaskForm):
     election_id = StringField("Election ID:", [DataRequired()])
@@ -112,138 +217,3 @@ class QuestionForm(FlaskForm):
 class AuditForm(FlaskForm):
     audit = SubmitField("Audit")
     confirm = SubmitField("Confirm")
-
-def validateDates(form: Dict) \
-    -> Tuple[Optional[datetime], Optional[datetime], List[str]]:
-    errors = []
-    start_time = None
-    end_time = None
-    try:
-        start_time = parseTime(mergeTime(form['start_year'], form['start_month'],
-                               form['start_day'], form['start_hour'],
-                               form['start_mins'], form['start_secs']))
-        end_time = parseTime(mergeTime(form['end_year'], form['end_month'],
-                             form['end_day'], form['end_hour'],
-                             form['end_mins'], form['end_secs']))
-        if (start_time is None):
-            errors.append("Badly formatted start date/time.")
-        if (end_time is None):
-            errors.append("Badly formatted end date/time.")
-    except KeyError:
-        errors.append("Empty form field found when creating start and end times\
-. Please ensure that all fields are filled out")
-    if not errors:
-        if (start_time <= datetime.now()):
-            errors.append("Please input a start date/time after the present.")
-        if (end_time <= datetime.now()):
-            errors.append("Please input an end date/time after the present.")
-        if (start_time >= end_time):
-            errors.append("Please input a time after the chosen start time.")
-    return start_time, end_time, errors
-
-def validateQuestions(form: ElectionForm, start_time: datetime,
-                      end_time: datetime) -> Tuple[Optional[Election], List[str]]:
-    errors = []
-    questions = {}
-    title = None
-    # We cannot know the order of the response, we also do not know how many
-    # questions and choices there will be, so we need to use regex to figure
-    # out what to do.
-    
-    try:
-        for id, value in form.items():
-            id = str(id)
-            if (id == 'title'):
-                if title is None:
-                    title = str(value)
-                    continue
-                else:
-                    errors.append("Multiple titles given for this election, please \
-only pass one.")
-                    continue
-            qMatch = re.fullmatch('^query_([0-9]+)$', id, re.IGNORECASE)
-            cMatch = re.fullmatch('^choice_([0-9]+)_([0-9]+)$', id, re.IGNORECASE)
-            mMatch = re.fullmatch('^maxanswers_([0-9]+)$', id, re.IGNORECASE)
-            if qMatch:
-                questionNum = int(qMatch.group(1))
-                if questionNum in questions:
-                    if 'query' in questions[questionNum]:
-                        errors.append(f"Multiple query text entries found \
-for question {questionNum}")
-                    else:
-                        questions[questionNum]['query'] = str(value)
-                else:
-                    questions[questionNum] = {'query':str(value)}
-            elif cMatch:
-                questionNum = int(cMatch.group(1))
-                choiceNum = int(cMatch.group(2))
-                newChoice = str(value)
-                if questionNum in questions:
-                    if 'choices' in questions[questionNum]:
-                        if choiceNum in questions[questionNum]['choices']:
-                            errors.append(f"Multiple entries found for choice number \
-{choiceNum} in question {questionNum}")
-                        else:
-                            questions[questionNum]['choices'][choiceNum] = newChoice
-                    else:
-                        questions[questionNum]['choices'] = {choiceNum:newChoice}
-                else:
-                    questions[questionNum] = {f'choice_{choiceNum}':newChoice}
-            elif mMatch:
-                questionNum = int(mMatch.group(1))
-                if questionNum in questions:
-                    if 'maxanswers' in questions[questionNum]:
-                        errors.append("Multiple entries found for number of choices\
- in question {questionNum}.")
-                    else:
-                        questions[questionNum]['maxanswers'] = int(value)
-                else:
-                    questions[questionNum] = {'maxanswers':int(value)}
-            else:
-                # for all other form elements just ignore them
-                continue
-    except ValueError:
-        errors.append("Invalid type encountered when parsing the questions - please check\
- that all values are of the correct type and try again.")
-
-    # did we find an election title after iterating through everything?
-    if title is None:
-        errors.append("Please enter a title for this election.")
-    if not errors:
-        election = parseElection({'questions':questions, 'title':title},
-                                 start_time, end_time)
-        if election is None:
-            errors.append("Something went wrong when parsing the form data.")
-    return election, errors
-
-def validateUpload(form: Dict, files: Dict, MAX_FILENAME_LENGTH: int,
-                   UPLOAD_FOLDER: str) -> Tuple[Union[str, None],
-                                                Union[str, None], List[str]]:
-    errors = []
-    newName = None
-    delim = None
-    if ((not 'delimiter' in form) or (len(form['delimiter']) != 1)):
-        errors.append("Please enter a delimiter that is 1 character long for\
-your CSV file.")
-    if 'file' not in files:
-        errors.append("No file found in form response.")
-    if not errors:
-        file = files['file']
-        filename = file.filename
-        if (len(filename) > MAX_FILENAME_LENGTH):
-            errors.append("Please limit your filename length to 50 characters.")
-        else:
-            filename = secure_filename(filename)
-            if not filename:
-                errors.append("Empty file sent to server.")
-            elif not isCsv(filename):
-                errors.append("Please only upload a CSV file.")
-    if not errors:
-        # note we save the file with a filename we generate
-        # ourselves and put it in session so we can refer back
-        # to it on the next page
-        filepath = os.path.join(current_app.config["UPLOAD_FOLDER"],
-                                newFilename())
-        delim = form['delimiter']
-        file.save(filepath)
-    return filepath, delim, errors
