@@ -13,7 +13,6 @@ CREATE TABLE keys (
 
 CREATE TABLE voters (
   voter_id VARCHAR PRIMARY KEY,
-  session_id VARCHAR NOT NULL,
   election_id VARCHAR NOT NULL,
   pass_hash VARCHAR NOT NULL, 
   full_name VARCHAR(71) NOT NULL,
@@ -29,7 +28,8 @@ CREATE TABLE elections (
   election_id VARCHAR PRIMARY KEY,
   title VARCHAR NOT NULL,
   start_time DATETIME NOT NULL,
-  end_time DATETIME NOT NULL
+  end_time DATETIME NOT NULL,
+  contact VARCHAR NOT NULL
 );
 
 CREATE TABLE questions (
