@@ -1,6 +1,6 @@
 from datetime import datetime
 
-class Voter:
+class Voter():
     """This class wraps each voter's data whenever we insert or extra from the
 database.
 
@@ -9,24 +9,45 @@ Attributes:
 - election_id -- election that this voter belongs to
 - name        -- voter's first and last names concatenated with a space between
 - postcode    -- voter's postcode
-- email       -- voter's email
+- uname       -- voter's username
 - dob         -- voter's date of birth
 - voted       -- whether or not this Voter has completed the election
 """
 
     # Constructor
     def __init__(self, voter_id: str, election_id: str, fname: str, lname: str,
-                 postcode: str, email: str, dob: datetime, hash: str):
+                 postcode: str, uname: str, dob: datetime, hash: str):
         self._voter_id = voter_id
         self._election_id = election_id
         self._name = fname[0].upper() + fname[1:] + ' ' +\
                      lname[0].upper() + lname[1:]
         self._postcode = postcode
-        self._email = email
+        self._uname = uname
         self._dob = dob
         self._voted = False
         self._hash = hash
-    
+
+    # required properties and methods for LoginManager
+    def get_id(self) -> str:
+        try:
+            return self.voter_id
+        except AttributeError:
+            raise NotImplementedError("No 'id' attribute - override 'get_id'") \
+                  from None
+
+    @property
+    def is_active(self) -> bool:
+        return True
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self.is_active
+
+    @property
+    def is_anonymous(self) -> bool:
+        return False
+
+    # ease of access properties
     @property
     def voter_id(self) -> str:
         return self._voter_id
@@ -44,8 +65,8 @@ Attributes:
         return self._postcode
 
     @property
-    def email(self) -> str:
-        return self._email
+    def uname(self) -> str:
+        return self._uname
 
     @property
     def dob(self) -> str:
