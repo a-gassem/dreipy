@@ -1,5 +1,4 @@
-from pyisemail import is_email
-from pyisemail.diagnosis import InvalidDiagnosis, ValidDiagnosis
+from flask import flash
 from gmpy2 import mpz, powmod
 from ecdsa import SigningKey, VerifyingKey, NIST256p
 from ecdsa.ellipticcurve import Point
@@ -12,6 +11,7 @@ from Question import Question
 from crypto import (generateRandSecret, generateR, generateZ, generateZKProof,
                     generatePair, hashString)
 
+from urlparse import urlparse, urljoin
 from uuid import uuid4
 from ast import literal_eval
 from base64 import b64decode, b64encode
@@ -21,7 +21,6 @@ from typing import Union, Dict, Any, Tuple, List, Generic, Optional
 import csv
 import json
 import os
-
 
 DOB_FORMAT = "%d-%m-%Y"
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -67,6 +66,14 @@ def _makeFolder(path: str, permissions: int) -> None:
     except OSError:
         pass
 
+def isSafeUrl(target_endpoint: str) -> bool:
+    """Basic function to check if a redirect target will lead to the same server. Source:
+    https://web.archive.org/web/20120517003641/http://flask.pocoo.org/snippets/62/"""
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return test_url.scheme in ('http', 'https') and \
+           ref_url.netloc == test_url.netloc
+
 def makeID() -> str:
     """Generates a random, unique ID from token_hex (not long enough to be
 cryptographically secure!!)"""
@@ -80,32 +87,25 @@ the string is not well-formed, returns None."""
     except ValueError:
         return None
 
-def parseElection(electionDict: Dict, start_time: datetime,
-              end_time: datetime) -> Optional[Election]:
+def parseElection(election_id: str, questions: Dict, start_time: datetime,
+                  end_time: datetime, title: str, contact: str) -> Election:
     """Given a dictionary of questions and choices, with the start/end times try
 to create an Election object and return it; otherwise return None"""
-    questionObjs = []
-    questions = electionDict['questions']
+    question_objs = []
     # note that we sort all our dictionaries to ensure that we get the correct
     # ordering of our lists when we iterate through them
-    try:
-        for questionNum, qDict in sorted(questions.items()):
-            choices = [choice for choiceNum, choice \
-                       in sorted(qDict['choices'].items())]
-            q_id = makeID()
-            gen_1, gen_2 = generatePair(q_id)
-            questionObjs.append(Question(q_id, qDict['query'],
-                                         qDict['maxanswers'], choices, gen_2))
-        return Election(makeID(), electionDict['title'], questionObjs,
-                        start_time, end_time)
-    except Exception as e:
-        # there shouldn't be any errors, but print to console just in case
-        print(e)
-        return None
+    for question_num, question_dict in sorted(questions.items()):
+        choices = [choice for choice_num, choice \
+                   in sorted(question_dict['choices'].items())]
+        question_id = makeID()
+        gen_1, gen_2 = generatePair(question_id)
+        question_objs.append(Question(question_id, question_dict['query'],
+                                      question_dict['numanswers'], choices,
+                                      gen_2))
+    return Election(election_id, title, question_objs, start_time, end_time, contacts)
 
-def mergeTime(year: str, month: str, day: str, hour: str, mins: str,
-              secs: str) -> str:
-    return f"{year}-{month}-{day} {hour}:{mins}:{secs}" 
+def mergeTime(year: str, month: str, day: str, hour: str) -> str:
+    return f"{year}-{month}-{day} {hour}:00:00" 
 
 def clearSession(session: Dict, keys: Optional[List]=None) -> None:
     """Given a Flask session and some keys, pop all those keys if they exist.
@@ -117,101 +117,54 @@ If no keys are passed (or the list is empty), then all keys are popped."""
     else:
         for key in keys:
             session.pop(key, None)
-
-def isCsv(filename: str) -> bool:
-    """Takes a filename *that has been passed through the secure_filename()
-function* and then does some simple checks to see if it is indeed a CSV file."""
-    parts = filename.split('.')
-    if (len(parts) != 2):
-        return False
-    return parts[1].lower() == 'csv'
     
 def newFilename() -> str:
     """Generates a random, new filename for the voter CSV file for us to save
 it as."""
     return f"{makeID()}.csv"
 
-def checkCsv(filepath: str, delimiter: str) \
-    -> Tuple[Optional[List], Optional[List], List[str]]:
+def checkCsv(election_id: str, filepath: str, delimiter: str) \
+    -> Optional[List[Voter]]:
     """Does some basic checks on an input CSV file. We do not exhaustively
 check for things like valid email addresses, valid postcodes and so on -- it
 is the responsibility of the person creating the election to gather the details
-of voters and store them correctly before passing them to DRE-ipy. That being
-said we do flag email addresses that are likely to be incorrect, check for
-duplicate email addresses and have set an upper limit on the length of names
-and postcodes."""
-    errors = []
+of voters and store them correctly before passing them to DRE-ipy.
+
+    Returns all the Voter objects for the election."""
     voters = []
-    emails = {'warn':[]}
-    badEmails = []
     with open(filepath, 'r', newline='') as f:
         reader = InsensitiveDictReader(f, delimiter=delimiter)
         if sorted(reader.fieldnames) != CSV_HEADERS:
-            errors.append("Mismatch in CSV file headers. Did you pass the \
-correct delimiter? Did you spell one of your headers wrong?")
-            return None, emails['warn'], errors
+            flash("Mismatch in CSV file headers. Did you pass the correct delimiter? Did you spell one of your headers wrong?")
+            return None
         for row in reader:
             # extra data gets put under the None key in the dict -- we don't
             # want this!
             if None in row:
-                errors.append("Found a row with more data than fields specified\
-. Please ensure that each row has exactly 1 entry for each header.")
-                return None, emails['warn'], errors
+                flash("Found a row with more data than fields specified. Please ensure that each row has exactly 1 entry for each header.")
+                return None
             # DoB checks
             try:
-                row['dob'] = datetime.strptime(row['dob'], DOB_FORMAT)
+                dob = datetime.strptime(row['dob'], DOB_FORMAT)
             except ValueError:
-                errors.append("Found a row with a badly-formed date of birth. \
-Please ensure that each date of birth is in the form DD-MM-YYYY.")
-                return None, None, errors
-            # email checks
-            email = row['uname']
-            if email in emails:
-                errors.append(f"Found a duplicate username: {email}\
-. Please ensure that each username is unique in the CSV file.")
-                return None, None, errors
-            diagnosis = is_email(email, diagnose=True)
-            if isinstance(diagnosis, InvalidDiagnosis):
-                badEmails.append(email)
-            elif isinstance(diagnosis, ValidDiagnosis):
-                emails[email] = ''
-            else:
-                # if not Valid or Invalid, then it's ambiguous and we should
-                # simply warn the user about the email address
-                emails['warn'].append(email)
+                flash("Found a row with a badly-formed date of birth. Please ensure that each date of birth is in the form DD-MM-YYYY.")
+                return None
+            # username checks
+            uname = row['uname']
+            if uname in unames:
+                flash(f"Found a duplicate username: {uname}. Please ensure that each username is unique in the CSV file.")
+                return None
             # length checks on other fields - truncate long names rather than
             # reject outright for maximum accessibility
-            row['fname'] = row['fname'][:FNAME_MAX_LENGTH]
-            row['lname'] = row['lname'][:LNAME_MAX_LENGTH]
-            row['postcode'] = row['postcode'][:POSTCODE_MAX_LENGTH]
-            row['pass'] = hashString(row['pass'])
+            fname = row['fname'][:FNAME_MAX_LENGTH]
+            lname = row['lname'][:LNAME_MAX_LENGTH]
+            postcode = row['postcode'][:POSTCODE_MAX_LENGTH]
+            hash = hashString(row['pass'])
             if not row['fname'] or not row['lname'] or not row['postcode']:
-                errors.append("Empty field found in CSV file. Please make sure\
- that all fields are filled out with the appropriate data.")
-                return None, None, errors
-            if len(voters) < SAMPLE_SIZE:
-                voters.append(row)
-    if badEmails:
-        errors.append(f"Invalid email address(es) found: {badEmails}. \
-Please ensure that all invalid email addresses are removed from the CSV file.")
-        return None, None, errors
-    return voters, emails['warn'], errors
-
-def _getVoters(election_id: str, filepath: str, delimiter: str) -> List[Voter]:
-    """Takes a path to a validated CSV file and returns a list of Voters whose
-details are stored in the file"""
-    voters = []
-    with open(filepath, 'r', newline='') as f:
-        reader = InsensitiveDictReader(f, delimiter=delimiter)
-        for voter in reader:
-            fname = voter['fname'][:FNAME_MAX_LENGTH]
-            lname = voter['lname'][:LNAME_MAX_LENGTH]
-            postcode = voter['postcode'][:POSTCODE_MAX_LENGTH]
-            email = voter['uname']
-            dob = datetime.strptime(voter['dob'], DOB_FORMAT)
-            hash = hashString(voter['pass'])
+                flash("Empty field found in CSV file. Please make sure that all fields are filled out with the appropriate data.")
+                return None
             voters.append(Voter(makeID(), election_id, fname, lname, postcode,
-                                email, dob, hash))
+                                uname, dob, hash))
     return voters
 
 def bytestrToPoint(bytestring: str) -> Point:
