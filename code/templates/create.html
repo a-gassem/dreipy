@@ -14,19 +14,36 @@
 
 <form enctype="multipart/form-data" action="" method="post">
     {{ form.csrf_token }}
-    {% for error in errors %}
-        <div class="error">{{ error }}</div>
-    {% endfor %}
+    {% if errors %}
+        <ul class="flashes">
+        {% for field, msg_list in errors.items() %}
+            {% for msg in msg_list %}
+                <li>{{ msg }}</li>
+            {% endfor %}
+        {% endfor %}
+        </ul>
+    {% endif}
+    
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <ul class="flashes">
+            {% for msg in messages %}
+                <li>{{ msg }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
     
     <h3>When is the election happening?</h3>
     <div class="row-fluid date">
         {{ form.start_year.label() }}
-        {{ form.start_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.start_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.start_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.start_hour(maxlength="2", class_="double", placeholder="HH") }}:{{ form.start_mins(maxlength="2", class_="double", placeholder="mm") }}:{{ form.start_secs(maxlength="2", class_="double", placeholder="ss") }}
+        {{ form.start_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.start_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.start_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.start_hour(maxlength="2", class_="double", placeholder="HH") }}:00:00
     </div>
     <div class="row-fluid date">
         {{ form.end_year.label() }}
-        {{ form.end_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.end_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.end_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.end_hour(maxlength="2", class_="double", placeholder="HH") }}:{{ form.end_mins(maxlength="2", class_="double", placeholder="mm") }}:{{ form.end_secs(maxlength="2", class_="double", placeholder="ss") }}
+        {{ form.end_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.end_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.end_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.end_hour(maxlength="2", class_="double", placeholder="HH") }}:00:00
     </div>
+    
     <h3>What are the questions?</h3>
     <div id="election-box">
         {{ form.title.label() }}
@@ -57,6 +74,12 @@
         {{ form.file() }}
         {{ form.delimiter.label() }}
         {{ form.delimiter(maxlength="1", class_="double", placeholder=',') }}
+    </div>
+    
+    <h3>Extra contact details:</h3>
+    <div>
+        {{ form.contact.label() }}
+        {{ form.contact() }}
     </div>
     <div class="btn">{{ form.submit() }}</div>
 </form>

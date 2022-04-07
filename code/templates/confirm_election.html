@@ -10,6 +10,7 @@
     
     <h4>ID: {{ election.election_id }}</h4>
     <h4>Title: {{ election.title }}</h4>
+    <h4>Election Contact: {{ election.contact }}</h4>
     
     {% for question in questions %}
         <div class="confirm-question">
@@ -24,26 +25,6 @@
             </div>
         </div>
     {% endfor %}
-    
-    <!-- Commented out to look better
-    {% for line in samples %}
-        <div class="confirm-voter">
-            <h3>Sample voter:</h3>
-            <h4>Name: {{ line['fname'] }} {{ line['lname'] }}</h4>
-            <h4>DoB: {{ line['dob'].strftime('%d-%m-%Y') }}</h4>
-            <h4>Postcode: {{ line['postcode'] }}</h4>
-            <h4>Email address: {{ line['email'] }}</h4>
-        </div>
-    {% endfor %}-->
-    {% if warnings %}
-        <h3>Some potentially invalid emails were included in your CSV:</h3>
-        <ul>
-        {% for warning in warnings %}
-            <li>{{ warning }}</li>
-        {% endfor %}
-        </ul>
-        <h3>If these are not typos then feel free to continue, however, you may want to verify that these are the intended email addresses.</h3>
-    {% endif %}
     <div class="row">
         <button onclick="window.location.href='{{ url_for('create') }}'" class="btn" type="button">Back</button>
         <form action="" method="post">
