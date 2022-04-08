@@ -95,10 +95,10 @@ parseTime() function will disallow any empty inputs anyway."""
             return None
         return (start_time, end_time)
 
-    def validateQuestions(form: FlaskForm) -> Optional[Dict]:
+    def validateQuestions(form_data: dict) -> Optional[dict]:
         questions = {}
         try:
-            for id, value in form.items():
+            for id, value in form_data.items():
                 id = str(id)
                 q_match = re.fullmatch('^query_([0-9]+)$', id, re.IGNORECASE)
                 c_match = re.fullmatch('^choice_([0-9]+)_([0-9]+)$', id, re.IGNORECASE)
@@ -134,7 +134,7 @@ parseTime() function will disallow any empty inputs anyway."""
                     num_answers = int(value)
                     if num_answers < 1:
                         raise ValidationError("The number of choices for a question must be at least 1.")
-                    if questionNum in questions:
+                    if question_num in questions:
                         if 'numanswers' in questions[question_num]:
                             flash("Multiple entries found for number of choices in question {question_num}.", "error")
                             return None
