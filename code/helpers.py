@@ -11,7 +11,7 @@ from Question import Question
 from crypto import (generateRandSecret, generateR, generateZ, generateZKProof,
                     generatePair, hashString)
 
-from urlparse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin
 from uuid import uuid4
 from ast import literal_eval
 from base64 import b64decode, b64encode
@@ -59,7 +59,7 @@ def generateSession() -> str:
     """Returns a cryptographically secure session ID"""
     return token_urlsafe(SECRET_BYTES)
 
-def _makeFolder(path: str, permissions: int) -> None:
+def makeFolder(path: str, permissions: int) -> None:
     """Helper procedure to create a folder that may or may not already exist."""
     try:
         os.makedirs(path, mode=permissions)
@@ -102,7 +102,8 @@ to create an Election object and return it; otherwise return None"""
         question_objs.append(Question(question_id, question_dict['query'],
                                       question_dict['numanswers'], choices,
                                       gen_2))
-    return Election(election_id, title, question_objs, start_time, end_time, contacts)
+    return Election(election_id, title, question_objs, start_time, end_time,
+                    contact)
 
 def mergeTime(year: str, month: str, day: str, hour: str) -> str:
     return f"{year}-{month}-{day} {hour}:00:00" 
@@ -132,6 +133,7 @@ of voters and store them correctly before passing them to DRE-ipy.
 
     Returns all the Voter objects for the election."""
     voters = []
+    unames = {}
     with open(filepath, 'r', newline='') as f:
         reader = InsensitiveDictReader(f, delimiter=delimiter)
         if sorted(reader.fieldnames) != CSV_HEADERS:
@@ -154,6 +156,7 @@ of voters and store them correctly before passing them to DRE-ipy.
             if uname in unames:
                 flash(f"Found a duplicate username: {uname}. Please ensure that each username is unique in the CSV file.")
                 return None
+            unames[uname] = True
             # length checks on other fields - truncate long names rather than
             # reject outright for maximum accessibility
             fname = row['fname'][:FNAME_MAX_LENGTH]

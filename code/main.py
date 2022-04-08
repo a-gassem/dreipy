@@ -1,21 +1,20 @@
 from flask import (Flask, render_template, redirect, session, url_for,
-                   request, g, abort)
+                   request, g, abort, flash)
 from flask_wtf.csrf import CSRFProtect
-from flask_login import LoginManager, login_user, current_user
+from flask_login import LoginManager, login_user, current_user, login_required
 
 from wtforms.validators import ValidationError
 from werkzeug.datastructures import CombinedMultiDict
 
 from Voter import Voter
-
 from helpers import (parseTime, mergeTime, makeID, clearSession, firstReceipt,
-                     checkCsv, _makeFolder, bytestrToVKey, sKeyToBytestr,
-                     auditBallot, prettyReceipt, isSafeUrl)
+                     checkCsv, makeFolder, bytestrToVKey, sKeyToBytestr,
+                     auditBallot, prettyReceipt, isSafeUrl, parseElection)
 from forms import (ElectionForm, SubmitForm, ViewElectionForm, LoginForm,
                    QuestionForm, AuditForm)
 from db import (initApp, insertElection, getElectionFromDb, getVoterFromDb,
                 isElectionInDb, getElectionStatus, validSessionData,
-                getElectionQuestion, getNewBallotID, getPrivateKey,
+                getQuestionByNum, getNewBallotID, getPrivateKey,
                 updateVoteReceipt, deleteBallot, updateAuditReceipt,
                 updateAuditBallot, incrementTallies, deleteSecrets,
                 getVoterFromSession, nextQuestion, completeVoting,
@@ -23,6 +22,7 @@ from db import (initApp, insertElection, getElectionFromDb, getVoterFromDb,
                 getConfirmedReceipts)
 from crypto import signData, hashString, verifyData
 
+from typing import Optional
 from datetime import datetime
 from markupsafe import escape
 from secrets import token_bytes, token_hex
@@ -78,8 +78,8 @@ main.config.from_mapping(
 CSRFProtect(main)
 
 # create all the relevant folders
-_makeFolder(main.instance_path, permissions=750)
-_makeFolder(uploadPath, permissions=750)
+makeFolder(main.instance_path, permissions=750)
+makeFolder(uploadPath, permissions=750)
 
 # start the app and add the login manager
 initApp(main)
@@ -119,9 +119,8 @@ def view():
     form = ViewElectionForm(request.form)
     election = None
     if request.method == 'POST':
-        election, errors = getElectionFromDb(escape(form.election_id.data))
-    return render_template("view.html", form=form, errors=errors,
-                           election=election)
+        election = getElectionFromDb(escape(form.election_id.data))
+    return render_template("view.html", form=form, election=election)
 
 @main.route("/create", methods=['GET', 'POST'])
 def create():
@@ -134,7 +133,7 @@ def create():
         time_tup = ElectionForm.validateDates(form)
         # validate the questions and choices in the form and construct
         # question dictionary
-        questions = ElectionForm.validateQuestions(form)
+        questions = ElectionForm.validateQuestions(form.data)
         # validate the uploaded file and construct the new file location
         filepath = ElectionForm.validateFile(form)
         election_id = makeID()
@@ -144,7 +143,9 @@ def create():
            and filepath is not None \
            and voters is not None:
             # create election and redirect to confirmation
-            election = parseElection(election_id, questions, start_time, end_time, title, contact)
+            start_time, end_time = time_tup
+            election = parseElection(election_id, questions, start_time, end_time,
+                                     title, contact)
             session['new_election'] = jsonpickle.encode(election)
             session['voters'] = jsonpickle.encode(voters)
             session['filepath'] = filepath
@@ -176,7 +177,7 @@ def confirmElection():
     if request.method == 'POST':
         # if we get a POST with all the checks passed at this point, then insert
         # into the DB
-        inserted = insertElection(election, filepath, voters)
+        inserted = insertElection(election, voters)
         if inserted is None:
             flash("Election was not inserted successfully", "error")
         else:
@@ -256,7 +257,7 @@ def voting(election_id: str, question_num: int):
     clean_num = int(escape(question_num))
     
     # make a Form from the Question object
-    question = getElectionQuestion(clean_id, clean_num)
+    question = getQuestionByNum(clean_id, clean_num)
     if question is None:
         session['errors'] = ['Something went wrong when trying to fetch that question']
         return redirect(url_for("voteLogin", election_id=clean_id))
