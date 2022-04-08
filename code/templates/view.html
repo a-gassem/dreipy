@@ -3,11 +3,16 @@
 {% block body %}
 <h1>Vote in (or view) an Election</h1>
 
-{% for error in errors %}
-    <div class="error">
-        <p>{{ error }}</p>
-    </div>
-{% endfor %}
+{% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <h3>Errors:</h3>
+            <ul class="errors">
+            {% for msg in messages %}
+                <li>{{ msg }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
 
 <p>Please enter the 6-digit ID for an election:</p>
 <form action="" method="post">

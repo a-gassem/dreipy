@@ -15,18 +15,22 @@
 <form enctype="multipart/form-data" action="" method="post">
     {{ form.csrf_token }}
     {% if errors %}
-        <ul class="flashes">
+        <h3>Errors:</h3>
+        <ul class="errors">
         {% for field, msg_list in errors.items() %}
             {% for msg in msg_list %}
                 <li>{{ msg }}</li>
             {% endfor %}
         {% endfor %}
         </ul>
-    {% endif}
+    {% endif %}
     
     {% with messages = get_flashed_messages() %}
         {% if messages %}
-            <ul class="flashes">
+            {% if not errors %}
+                <h3>Errors:</h3>
+            {% endif %}
+            <ul class="errors">
             {% for msg in messages %}
                 <li>{{ msg }}</li>
             {% endfor %}
