@@ -8,6 +8,7 @@ from helpers import (validateHash, bytestrToPoint, pointToBytestr,
                      generateSession, parseTime, bytestrToSKey, sKeyToBytestr,
                      hexToMpz)
 from Election import Election
+from Voter import Voter
 from Status import Status, checkStatus
 from Question import Question
 from crypto import generateKeyPair
@@ -16,7 +17,7 @@ import click
 from gmpy2 import mpz
 from ecdsa import SigningKey
 from ecdsa.ellipticcurve import Point
-from flask import Flask, current_app, g
+from flask import Flask, current_app, g, flash
 from flask.cli import with_appcontext
 
 def getDBConnection() -> Optional[sqlite3.Connection]:
@@ -93,21 +94,21 @@ def initApp(main: Flask) -> None:
     main.cli.add_command(initDB)
     main.cli.add_command(initKeys)
 
-def insertVoters(voters: List[Voter], cur: sqlite3.Cursor) -> Optional[bool]:
+def insertVoters(voters: List[Voter], election_id: str, cur: sqlite3.Cursor) \
+    -> Optional[bool]:
     """Given a valid voter CSV file, inserts all voters into the database."""
     try:
         for voter in voters:
             cur.execute("""INSERT INTO voters (voter_id, election_id,
                         pass_hash, full_name, dob, postcode, uname, finished_voting,
-                        current_question) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1);""",
+                        current_question) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1);""",
                         (voter.voter_id, election_id, voter.hash, voter.name,
                          voter.dob, voter.postcode, voter.uname)
                         )
-            
+        return True  
     except Exception as e:
         print(f"Could not insert voters: {e}")
         return None
-    return True
 
 def insertElection(election: Election, voters: List[Voter]) \
     -> Optional[List[str]]:
@@ -119,15 +120,11 @@ data into the database. Returns None if we encounter an error -- True otherwise.
         return None
     try:
         cur = con.cursor()
-        # insert voters from CSV file
-        if insertVoters(voters, cur) is None:
-            raise Exception
-        
         # insert election metadata
-        cur.execute("""INSERT INTO elections (election_id, title, start_time, end_time)
-                    VALUES (?, ?, ?, ?, ?);""", (election.election_id, election.title,
-                                                 election.start_time, election.end_time,
-                                                 election.contact)
+        cur.execute("""INSERT INTO elections (election_id, title, start_time,
+                    end_time, contact) VALUES (?, ?, ?, ?, ?);""",
+                    (election.election_id, election.title, election.start_time,
+                     election.end_time, election.contact)
                     )
         
         # insert questions
@@ -147,10 +144,13 @@ data into the database. Returns None if we encounter an error -- True otherwise.
             cur.executemany("""INSERT INTO choices 
                             (question_id, index_num, text, tally_total, sum_total) 
                             VALUES (?, ?, ?, 0, 0);""", question.sql_choices)
+        # insert voters from CSV file
+        if insertVoters(voters, election.election_id, cur) is None:
+            raise Exception
         con.commit()
         return True
     except Exception as e:
-        print(e)
+        print(f"Could not insert election: {e}")
         return None
     finally:
         cur.close()
@@ -168,8 +168,8 @@ Tries to find the Election in the database and return it for quick access later.
                             WHERE election_id = ? LIMIT 1;""", (election_id,)
                           ).fetchone()
         if row is None:
-            print(f"""No elections found with ID: {election_id}. Double
-                    check that you have typed it in correctly and try again.""")
+            flash(f"""No elections found with that ID. Double
+                    check that you have typed it in correctly and try again.""", "error")
             raise Exception
         # then parse main metadata
         title, start_time, end_time, contact = row
@@ -182,27 +182,94 @@ Tries to find the Election in the database and return it for quick access later.
             print("The end time could not be parsed into a datetime object.")
             raise Exception
         # fetch its questions
-        rows = cur.execute("""SELECT question_id, question_num, text, num_answers, gen_2
-                            FROM questions NATURAL JOIN election_questions
-                            WHERE election_id = ? ORDER BY question_num ASC;""", (election_id,)
+        rows = cur.execute("""SELECT questions.question_id
+                            FROM election_questions NATURAL JOIN questions
+                            WHERE election_questions.election_id = ?
+                            ORDER BY questions.question_num ASC;""", (election_id,)
                            ).fetchall()
         if rows is None:
-            print(f"""No questions found for election ID: {election_id}. Double
-                    check that you have typed it in correctly and try again.""")
+            flash(f"""No questions found for that election ID. Double
+                    check that you have typed it in correctly and try again.""", "error")
             raise Exception
         election_questions = []
-        for question_id, q_num, query, max_answers, g2 in rows:
-            question = getElectionQuestion(question_id, q_num)
+        for row in rows:
+            question = getQuestionById(row['question_id'])
             if question is None:
                 print("Could not create question object.")
                 return None
             election_questions.append(question)
-        new_election = Election(election_id, title, election_questions,
+        return Election(election_id, title, election_questions,
                                 start_time, end_time, contact)
-        return new_election, errors
     except Exception as e:
         print(e)
-        return None, errors
+        return None
+    finally:
+        cur.close()
+
+def getQuestionByNum(election_id: str, question_num: int) \
+    -> Optional[Question]:
+    """
+    Given a question's ID, returns a constructed Question
+    object from the database if possible; otherwise return None.
+    """
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        row = cur.execute("""SELECT question_id, text, num_answers, gen_2
+                            FROM questions NATURAL JOIN election_questions
+                            WHERE (election.election_id = ?)
+                            AND (question.question_num = ?)
+                            LIMIT 1;""", (election_id, question_num)
+                          ).fetchone()
+        if not row:
+            return None
+        question_id, query, num_answers, g2 = row
+        rows = cur.execute("""SELECT text FROM choices WHERE question_id = ? ORDER BY
+                            index_num ASC;""", (question_id,)
+                           ).fetchall()
+        if not rows:
+            return None
+        return Question(question_id, query, num_answers,
+                        [choice['text'] for choice in rows],
+                        bytestrToPoint(g2)
+                        )
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+
+def getQuestionById(question_id: str) -> Optional[Question]:
+    """
+    Given a question's ID, returns a constructed Question
+    object from the database if possible; otherwise return None.
+    """
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        row = cur.execute("""SELECT text, num_answers, gen_2
+                            FROM questions WHERE (question_id = ?)
+                            LIMIT 1;""", (question_id,)
+                          ).fetchone()
+        if not row:
+            return None
+        query, num_answers, g2 = row
+        rows = cur.execute("""SELECT text FROM choices WHERE question_id = ?
+                            ORDER BY index_num ASC;""", (question_id,)
+                           ).fetchall()
+        if not rows:
+            return None
+        return Question(question_id, query, num_answers,
+                        [choice['text'] for choice in rows],
+                        bytestrToPoint(g2)
+                        )
+    except Exception as e:
+        print(e)
+        return None
     finally:
         cur.close()
         
@@ -312,38 +379,6 @@ def getVoterFromSession(session_id: str) -> Optional[str]:
         if not row:
             return None
         return row['voter_id']
-    except Exception as e:
-        print(e)
-        return None
-    finally:
-        cur.close()
-
-def getElectionQuestion(election_id: str, question_num: int) \
-    -> Optional[Question]:
-    """Given an election ID and question number, returns a constructed Question
-object from the database if possible; otherwise return None."""
-    con = getDBConnection()
-    if con is None:
-        return None
-    try:
-        cur = con.cursor()
-        row = cur.execute("""SELECT question_id, text, num_answers, gen_2
-                            FROM questions NATURAL JOIN election_questions
-                            WHERE (election_questions.election_id = ?)
-                            AND (questions.question_num = ?);""", (election_id, question_num)
-                          ).fetchone()
-        if not row:
-            return None
-        question_id, query, num_answers, g2 = row
-        rows = cur.execute("""SELECT text FROM choices WHERE question_id = ? ORDER BY
-                            index_num ASC;""", (question_id,)
-                           ).fetchall()
-        if not rows:
-            return None
-        return Question(question_id, query, num_answers,
-                        [choice['text'] for choice in rows],
-                        bytestrToPoint(g2)
-                        )
     except Exception as e:
         print(e)
         return None
