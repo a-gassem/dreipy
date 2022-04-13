@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from Question import Question
 from Status import Status, checkStatus
 from datetime import datetime
@@ -55,6 +55,16 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
         self._contact = contact
         self._sql_questions = Election.makeQuestionTuples(questions)
 
+    def getQuestion(self, question_id: str) -> Optional[Question]:
+        """
+        Given a question ID, returns the appropriate question object,
+        or None.
+        """
+        for question in self.questions:
+            if question.question_id == question_id:
+                return question
+        return None
+
     @property
     def election_id(self) -> str:
         return self._election_id
@@ -96,11 +106,14 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
         return checkStatus(self.start_time, self.end_time)
 
     def __str__(self):
-        string = f"Election ID: {self.election_id}\n"
-        string += f"Title: {self.title}\n\n"
-        string += f"Starts: {self.str_start_time}\n"
-        string += f"Ends: {self.str_end_time}\n"
-        string += f"Status: {self.status.name}\n"
+        string = f"""
+Election ID: {self.election_id}
+Title: {self.title}
+Contact: {self.contact}
+Starts: {self.str_start_time}
+Ends: {self.str_end_time}
+Status: {self.status.name}
+"""
         for i in range(len(self.questions)):
             string += f"\nQuestion {i}: {str(self.questions[i])}\n"
         return string

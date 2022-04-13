@@ -15,17 +15,22 @@ Attributes:
 """
 
     # Constructor
-    def __init__(self, voter_id: str, election_id: str, fname: str, lname: str,
-                 postcode: str, uname: str, dob: datetime, hash: str):
+    def __init__(self, voter_id: str, election_id: str, name: str,
+                 postcode: str, uname: str, dob: datetime, hash: str,
+                 voted: bool = False, current_q: int = 0):
         self._voter_id = voter_id
         self._election_id = election_id
-        self._name = fname[0].upper() + fname[1:] + ' ' +\
-                     lname[0].upper() + lname[1:]
+        self._name = name
         self._postcode = postcode
         self._uname = uname
         self._dob = dob
-        self._voted = False
+        self._voted = voted
         self._hash = hash
+        self._current = current_q
+
+    def nextQuestion(self) -> None:
+        """Increments the question counter for the voter"""
+        self._current += 1
 
     # required properties and methods for LoginManager
     def get_id(self) -> str:
@@ -79,4 +84,8 @@ Attributes:
     @property
     def hash(self) -> str:
         return self._hash
+
+    @property
+    def current(self) -> int:
+        return self._current
     
