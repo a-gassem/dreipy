@@ -3,42 +3,29 @@
 {% block body %}
 <h1>Vote</h1>
 
-{% for error in errors %}
-    <div class="error">{{ error }}</div>
-{% endfor %}
-
-{% if 'audited' in session and 'audit_sign' in session %}
-<h4>Here is your AUDITED ballot data:</h4>
-<div class="stage-one">
-    <h2>VOTING STAGE ONE</h2>
-    <h4>Election ID: {{ election_id }}</h4>
-    <h4>Ballot ID: {{ session['ballot_id'] }}</h4>
-    <h4>Question ID: {{ session['question_id'] }}</h4>
-    <h4>Confirmation code: {{ session['audited'] }}</h4>
-</div>
-</br>
-<div class="stage-two">
-    <h2>VOTING STAGE TWO</h2>
-    <h3>Ballot: AUDITED</h3>
-    <h4>Choice: {{ session['vote'] }}</h4>
-    <p>Secret: {{ session['secret'] }}</p>
-</div>
-{% elif 'confirmed' in session and 'confirm_sign' in session %}
-<h4>Here is your CONFIRMED ballot data:</h4>
-<div class="stage-one">
-    <h2>VOTING STAGE ONE</h2>
-    <h4>Election ID: {{ election_id }}</h4>
-    <h4>Ballot ID: {{ session['ballot_id'] }}</h4>
-    <h4>Question ID: {{ session['question_id'] }}</h4>
-    <h4>Confirmation code: {{ session['confirmed'] }}</h4>
-</div>
-</br>
-<div class="stage-two">
-    <h2>VOTING STAGE TWO</h2>
-    <h3>Ballot: CONFIRMED</h3>
-    </br>
-</div>
+{% if errors %}
+    <h3>Errors:</h3>
+    <ul class="errors">
+    {% for field, msg_list in errors.items() %}
+        {% for msg in msg_list %}
+            <li>{{ msg }}</li>
+        {% endfor %}
+    {% endfor %}
+    </ul>
 {% endif %}
+
+{% with messages = get_flashed_messages() %}
+    {% if messages %}
+        {% if not errors %}
+            <h3>Errors:</h3>
+        {% endif %}
+        <ul class="errors">
+        {% for msg in messages %}
+            <li>{{ msg }}</li>
+        {% endfor %}
+        </ul>
+    {% endif %}
+{% endwith %}
 
 <form action="" method="post">
     {{ form.csrf_token }}

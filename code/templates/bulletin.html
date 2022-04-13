@@ -3,28 +3,12 @@
 {% block body %}
 <h1>Bulletin for Election: {{ election.title }}</h1>
 
-{% if 'confirmed' in session and 'confirm_sign' in session %}
-    <h4>Here is your CONFIRMED ballot data:</h4>
-    <div class="stage-one">
-        <h2>VOTING STAGE ONE</h2>
-        <h4>Election ID: {{ clean_id }}</h4>
-        <h4>Ballot ID: {{ session['ballot_id'] }}</h4>
-        <h4>Question ID: {{ session['question_id'] }}</h4>
-        <h4>Confirmation code: {{ session['confirmed'] }}</h4>
-    </div>
-        </br>
-    <div class="stage-two">
-        <h2>VOTING STAGE TWO</h2>
-        <h3>CONFIRMED</h3>
-    </div>
-{% endif %}
-
-    <div>
-        <h2>Election Results:</h2>
+<div>
+    <h2>Election Results:</h2>
         {% for question in election.questions %}
             <div>
                 <h3>{{ question.query }}</h3>
-                {% for d in totals[question.question_id] %}
+                {% for d in totals[question.question_id]['choices'] %}
                     <h4>  Choice: {{ d['choice'] }}</h4>
                     <h4>    Total votes: {{ d['tally'] }}</h4>
                     <h4>    Secret sum: {{ d['sum'] }}</h4>
@@ -32,90 +16,55 @@
             </div>
             </br>
         {% endfor %}
-    </div>
+</div>
 
-
-{% if user_receipts['audited'] %}
-    <div>
-        <h2>Here are your <em>personal</em> AUDITED receipts:</h2>
-        {% for receipt in user_receipts['audited'] %}
-            <div class="stage-one">
-                <h2>VOTING STAGE ONE</h2>
-                <h4>Election ID: {{ election.election_id }}</h4>
-                <h4>Ballot ID: {{ receipt['ballot_id'] }}</h4>
-                <h4>Question ID: {{ receipt['question_id'] }}</h4>
-                <h4>Confirmation code: {{ receipt['hash'] }}</h4>
-            </div>
-            </br>
-            <div class="stage-two">
-                <h2>VOTING STAGE TWO</h2>
-                <h3>AUDITED</h3>
-                <h4>Choice: {{ receipt['choice'] }}</h4>
-                <p>Secret: {{ receipt['secret'] }}</p>
-            </div>
-            </br>
+<div class="bulletin">
+    <h1>BALLOTS:</h1>
+    <table>
+        <tr>
+            <th>Ballot ID</th>
+            <th>Question ID</th>
+            <th>Choice</th>
+            <th>Z</th>
+            <th>R</th>
+            <th>C1</th>
+            <th>C2</th>
+            <th>R1</th>
+            <th>R2</th>
+            <th>Num C</th>
+            <th>Num R</th>
+            <th>Audited?</th>
+            <th>Secret</th>
+            <th>Voted?</th>
+        </tr>
+        {% for receipt in receipt_list %}
+            {% for i in range(totals[receipt['question_id']]['num_choices']) %}
+                {% with row = receipt['choices'][i] %}
+                    <tr>
+                        <td>{{ receipt['ballot_id'] }}</td>
+                        <td>{{ receipt['question_id'] }}</td>
+                        <td>{{ row['choice'] }}</td>
+                        <td>{{ row['Z'] }}</td>
+                        <td>{{ row['R'] }}</td>
+                        <td>{{ row['c_1'] }}</td>
+                        <td>{{ row['c_2'] }}</td>
+                        <td>{{ row['r_1'] }}</td>
+                        <td>{{ row['r_2'] }}</td>
+                        <td>{{ receipt['num_proof_c'] }}</td>
+                        <td>{{ receipt['num_proof_r'] }}</td>
+                        {% if receipt['state'] == 'AUDITED' %}
+                            <td class="audit">AUDITED</td>
+                            <td class="audit">{{ row['r'] }}</td>
+                            <td class="audit">{{ row['voted'] }}</td>
+                        {% else %}
+                            <td class="confirm">CONFIRMED</td>
+                            <td class="confirm">{{ row['r'] }}</td>
+                            <td class="confirm">{{ row['voted'] }}</td>
+                        {% endif %}
+                    </tr>
+                {% endwith %}
+            {% endfor %}
         {% endfor %}
-    </div>
-{% endif %}
-
-<div>
-    <h2>Here are your <em>personal</em> CONFIRMED receipts:</h2>
-    {% for receipt in user_receipts['confirmed'] %}
-        <div class="stage-one">
-            <h2>VOTING STAGE ONE</h2>
-            <h4>Election ID: {{ election.election_id }}</h4>
-            <h4>Ballot ID: {{ receipt['ballot_id'] }}</h4>
-            <h4>Question ID: {{ receipt['question_id'] }}</h4>
-            <h4>Confirmation code: {{ receipt['hash'] }}</h4>
-        </div>
-        </br>
-        <div class="stage-two">
-            <h2>VOTING STAGE TWO</h2>
-            <h3>Ballot: CONFIRMED</h3>
-        </div>
-        </br>
-        </br>
-    {% endfor %}
+    </table>
 </div>
-
-<div>
-    <h2>All CONFIRMED receipts:</h2>
-    {% for d in confirmed %}
-        <div class="stage-one">
-            <h2>VOTING STAGE ONE</h2>
-            <h4>Election ID: {{ election.election_id }}</h4>
-            <h4>Ballot ID: {{ d['receipt']['ballot_id'] }}</h4>
-            <h4>Question ID: {{ d['receipt']['question_id'] }}</h4>
-            <h4>Confirmation code: {{ d['receipt']['hash'] }}</h4>
-        </div>
-        </br>
-        <div class="stage-two">
-            <h2>VOTING STAGE TWO</h2>
-            <h3>Ballot: CONFIRMED</h3>
-        </div>
-        </br>
-    {% endfor %}
-</div>
-
-<div>
-    <h2>All AUDITED receipts:</h2>
-    {% for d in audited %}
-        <div class="stage-one">
-            <h2>VOTING STAGE ONE</h2>
-            <h4>Election ID: {{ election.election_id }}</h4>
-            <h4>Ballot ID: {{ d['receipt']['ballot_id'] }}</h4>
-            <h4>Question ID: {{ d['receipt']['question_id'] }}</h4>
-            <h4>Confirmation code: {{ d['receipt']['hash'] }}</h4>
-        </div>
-        </br>
-        <div class="stage-two">
-            <h2>VOTING STAGE TWO</h2>
-            <h3>Ballot: AUDITED</h3>
-            <h4>Choice: {{ d['receipt']['choice'] }}</h4>
-            <p>Secret: {{ d['receipt']['secret'] }}</p>
-        </div>
-        </br>
-    {% endfor %}
-</div>
-
 {% endblock %}

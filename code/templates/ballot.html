@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}{% if audited %}AUDITED{% else %}CONFIRMED{% endif %}{% endblock %}
+
+{% block body %}
+
+{% if audited %}
+<h1>Your vote has been AUDITED. You will be sent to the previous question where you can submit another vote and either audit it again, or confirm it and move on to the next page..</h1>
+{% else %}
+<h1>Your vote has been CONFIRMED. Your vote has been counted and your vote's secrets have been securely deleted. You will be sent to the next page.</h1>
+{% endif %}
+
+<h2>Vote receipt:</h2>
+
+<div class="stage-two">
+    <h1>VOTING STAGE TWO</h1>
+    <h2>Election ID: {{ session['receipt']['election_id'] }}</h2>
+    <table>
+        <tr>
+            <th>Ballot ID</th>
+            <th>Question ID</th>
+            <th>Choice</th>
+            <th>Z</th>
+            <th>R</th>
+            <th>C1</th>
+            <th>C2</th>
+            <th>R1</th>
+            <th>R2</th>
+            <th>Num C</th>
+            <th>Num R</th>
+            <th>Audited?</th>
+            <th>Secret</th>
+            <th>Voted?</th>
+        </tr>
+        {% if audited %}
+            {% for i in range(num_choices) %}
+                {% with row = session['receipt']['choices'][i] %}
+                    <tr>
+                        <td>{{ session['receipt']['ballot_id'] }}</td>
+                        <td>{{ session['receipt']['question_id'] }}</td>
+                        <td>{{ row['choice'] }}</td>
+                        <td>{{ row['Z'] }}</td>
+                        <td>{{ row['R'] }}</td>
+                        <td>{{ row['c_1'] }}</td>
+                        <td>{{ row['c_2'] }}</td>
+                        <td>{{ row['r_1'] }}</td>
+                        <td>{{ row['r_2'] }}</td>
+                        <td>{{ session['receipt']['num_proof_c'] }}</td>
+                        <td>{{ session['receipt']['num_proof_r'] }}</td>
+                        <td class="audit">AUDITED</td>
+                        <td class="audit">{{ row['r'] }}</td>
+                        <td class="audit">{{ row['voted'] }}</td>
+                    </tr>
+                {% endwith %}
+            {% endfor %}
+        {% else %}
+            {% for i in range(num_choices) %}
+                {% with row = session['receipt']['choices'][i] %}
+                    <tr>
+                        <td>{{ session['receipt']['ballot_id'] }}</td>
+                        <td>{{ session['receipt']['question_id'] }}</td>
+                        <td>{{ row['choice'] }}</td>
+                        <td>{{ row['Z'] }}</td>
+                        <td>{{ row['R'] }}</td>
+                        <td>{{ row['c_1'] }}</td>
+                        <td>{{ row['c_2'] }}</td>
+                        <td>{{ row['r_1'] }}</td>
+                        <td>{{ row['r_2'] }}</td>
+                        <td>{{ session['receipt']['num_proof_c'] }}</td>
+                        <td>{{ session['receipt']['num_proof_r'] }}</td>
+                        <td class="confirm">CONFIRMED</td>
+                        <td class="confirm">DELETED</td>
+                        <td class="confirm">DELETED</td>
+                    </tr>
+                {% endwith %}
+            {% endfor %}
+        {% endif %}
+    </table>
+</div>
+
+<form action="" method="post">
+    {{ form.csrf_token }}
+    {{ form.submit() }}
+</form>
+
+{% endblock %}
