@@ -43,9 +43,8 @@ CREATE TABLE questions (
 CREATE TABLE ballots (
   ballot_id BIGINT NOT NULL,
   election_id VARCHAR NOT NULL,
-  voter_id VARCHAR NOT NULL,
-  first_sign VARCHAR,
-  second_sign VARCHAR,
+  signature VARCHAR,
+  voted BOOLEAN,
   hash VARCHAR,
   choice_index INT,
   question_id VARCHAR NOT NULL,
@@ -60,8 +59,7 @@ CREATE TABLE ballots (
   num_r VARCHAR,
   num_c VARCHAR,
   FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE,
-  FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE,
-  FOREIGN KEY (voter_id) REFERENCES voters(voter_id) ON DELETE CASCADE
+  FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE
 );
 
 CREATE TABLE choices (
