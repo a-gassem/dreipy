@@ -1,7 +1,7 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired, FileAllowed
 from wtforms import (StringField, SubmitField, SelectField,
-                     SelectMultipleField, RadioField)
+                     SelectMultipleField, RadioField, widgets)
 from wtforms.validators import DataRequired, Email, ValidationError
 from werkzeug.utils import secure_filename
 from flask import current_app, flash
@@ -40,8 +40,11 @@ parseTime() function will disallow any empty inputs anyway."""
     query_1 = StringField("Question text:", [DataRequired()])
     choice_1_1 = StringField("Choice:", [DataRequired()])
     choice_1_2 = StringField("Choice:", [DataRequired()])
-    maxanswers_1 = SelectField("Number of answers:",
-                               choices=[(1, 1)], validators=[DataRequired()])
+    
+    # note we do not validate the choice since we do that in the validator method
+    # and this allows for dynamic choices to be added
+    maxanswers_1 = SelectField("Number of answers:", choices=[(1, 1)],
+                               validators=[DataRequired()], validate_choice=False)
 
     # for uploading the voter CSV file
     file = FileField("Voter CSV File:", validators=[FileRequired(),
@@ -165,18 +168,26 @@ class LoginForm(FlaskForm):
 class SubmitForm(FlaskForm):
     submit = SubmitField("Submit")
 
+# from https://gist.github.com/ectrimble20/468156763a1389a913089782ab0f272e
+class MultiCheckboxField(SelectMultipleField):
+    widget = widgets.ListWidget(prefix_label=False)
+    option_widget = widgets.CheckboxInput()
+
 class QuestionForm(FlaskForm):
     # initialise Form with default attributes that we overwrite in the
     # constructor
-    q_multi_choice = SelectMultipleField("Default", choices=[(0, "default")])
-    q_single_choice = RadioField("Default", choices=[(0, "default")])
+    q_multi_choice = MultiCheckboxField("Default", choices=[(0, "default")],
+                                        coerce=int, validate_choice=False)
+    q_single_choice = RadioField("Default", choices=[(0, "default")],
+                                 coerce=int, validate_choice=False)
     expected_choices = 1
     choice_list = []
     submit = SubmitField("Vote")
 
     def __init__(self, question: Question, *args, **kwargs) -> FlaskForm:
         super().__init__(*args, **kwargs)
-        self.choice_list = [(i, question.choices[i]) for i in range(len(question.choices))]
+        self.choice_list = [(i, question.choices[i]) \
+                            for i in range(len(question.choices))]
         if question.is_multi:
             self.q_multi_choice.label.text = question.query
             self.q_multi_choice.choices = self.choice_list
@@ -190,8 +201,6 @@ class QuestionForm(FlaskForm):
         """Validator for questions that only allow 1 choice."""
         if form.expected_choices != 1:
             return
-        if field is None or len(field.data) != 1:
-            raise ValidationError("Bad number of choices (expected 1)")
         try:
             choice_index = int(field.data)
             if choice_index < 0 or choice_index >= len(form.choice_list):
@@ -199,7 +208,7 @@ class QuestionForm(FlaskForm):
         except TypeError:
             raise ValidationError("Choice index must be an integer")
 
-    def validate_q_multi_choice(form: FlaskForm, field: SelectMultipleField) \
+    def validate_q_multi_choice(form: FlaskForm, field: MultiCheckboxField) \
         -> Optional[ValidationError]:
         """Validator for questions that require more than 1 choices."""
         if form.expected_choices == 1:
