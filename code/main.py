@@ -9,17 +9,17 @@ from werkzeug.datastructures import CombinedMultiDict
 from Voter import Voter
 from helpers import (parseTime, mergeTime, makeID, clearSession, firstReceipt,
                      checkCsv, makeFolder, bytestrToVKey, sKeyToBytestr,
-                     auditBallot, prettyReceipt, isSafeUrl, parseElection)
+                     auditBallot, prettyReceipt, isSafeUrl, parseElection,
+                     confirmBallot, electionTotals)
 from forms import (ElectionForm, SubmitForm, ViewElectionForm, LoginForm,
                    QuestionForm, AuditForm)
 from db import (initApp, insertElection, getElectionFromDb, getVoterFromDb,
-                isElectionInDb, getElectionStatus, validSessionData,
+                isElectionInDb, getElectionStatus, validVoterData,
                 getQuestionByNum, getNewBallotID, getPrivateKey,
-                updateVoteReceipt, deleteBallot, updateAuditReceipt,
+                updateVoteReceipt, deleteBallot,
                 updateAuditBallot, incrementTallies, deleteSecrets,
-                getVoterFromSession, nextQuestion, completeVoting,
-                totalQuestions, getAuditedReceipts, getQuestionTallies,
-                getConfirmedReceipts)
+                getVoterById, nextQuestion, completeVoting, getBallots,
+                totalQuestions, getQuestionTallies)
 from crypto import signData, hashString, verifyData
 
 from typing import Optional
@@ -36,23 +36,15 @@ UPLOAD_FOLDER = "uploads/"
 # maximum size of the uploaded CSV file (MiB)
 MAX_FILE_SIZE_LIMIT = 5
 
-
 # number of bytes to use when generating secrets
 SECRET_BYTES = 32
 
 ## THINGS TO DO BEFORE DRAFT:
-# TODO: delete CSV file after uploaded and data inserted into database
-# TODO: bulletin board stuff -- graph of results for candidates;
-#       sort receipts by ballot ID for ease of searching;
-#       remove voter id from database as not needed
+# TODO: graph of results for candidates;
 # TODO: contact in case of bad verification
-#      (contact email address in Election object/db)
 # TODO: multi-vote shit
 # TODO: CSS so it's  p r e t t y
 
-# FINISH LOGIN MANAGEMENT --> return Voter from Db call
-
-# TODO: proper hashing/validation of stuff
 # TODO: unit tests?
 
 ## general QoL improvements
@@ -87,8 +79,8 @@ login_manager = LoginManager()
 login_manager.init_app(main)
 
 @login_manager.user_loader
-def load_voter(user_id) -> Optional[Voter]:
-    return Voter.get(user_id)
+def load_voter(voter_id: str) -> Optional[Voter]:
+    return getVoterById(voter_id)
 
 @login_manager.unauthorized_handler
 def unauthorised():
@@ -126,14 +118,15 @@ def view():
 def create():
     form = ElectionForm(CombinedMultiDict((request.files, request.form)))
     if form.validate_on_submit():
+        request_list = request.form.to_dict()
         title = form.title.data
         contact = form.contact.data
         delim = form.delimiter.data
         # validate the dates part of the form and construct datetimes
         time_tup = ElectionForm.validateDates(form)
         # validate the questions and choices in the form and construct
-        # question dictionary
-        questions = ElectionForm.validateQuestions(form.data)
+        # question dictionary FROM THE REQUEST MULTIDICT
+        questions = ElectionForm.validateQuestions(request_list)
         # validate the uploaded file and construct the new file location
         filepath = ElectionForm.validateFile(form)
         election_id = makeID()
@@ -154,7 +147,6 @@ def create():
     
 @main.route("/confirm-election", methods=["GET", "POST"])
 def confirmElection():
-    
     # ensure the user has filled out the form properly
     if not 'new_election' in session:
         flash("Election incomplete, ensure that you correctly filled out the election details here.",
@@ -196,33 +188,29 @@ def confirmElection():
 @main.route("/login", methods=["GET", "POST"])
 def voteLogin():
     # use GET request to parse and check the election ID we're trying to login with
-    errors = session.pop("errors", [])
-    clearSession(session)
     election_id = escape(request.args.get("election_id", ""))
     if not election_id:
-        session['errors'] = ["No election ID given, please pass an election ID \
-and try again."]
+        flash("No election ID given, please pass an election ID and try again.", 'error')
         return redirect(url_for("view"))
 
     status = getElectionStatus(election_id)
     
     if status is None:
-        session['errors'] = [f"Invalid election ID passed: No election found \
-with that ID."]
+        flash(f"Invalid election ID passed: No election found with that ID.", 'error')
         return redirect(url_for("view"))
     
     if status.name == "PENDING":
-        session['errors'] = [f"Election ID {election_id} has not started yet! Come back after\
-{election.str_start_time}."]
+        flash(f"Election ID {election_id} has not started yet! Come back after {election.str_start_time}.", 'error')
         return redirect(url_for("view"))
+    
     if status.name == "CLOSED":
-        session['errors'] = [f"Election ID {election_id} has closed! Check out its results."]
+        flash(f"Election ID {election_id} has closed! Check out its results.", 'error')
         return redirect(url_for("view"))
 
     # if user is already logged in then send to next page
-    if current_user.is_authenticated():
+    if current_user.is_authenticated:
         return redirect(url_for("voting", election_id=election_id,
-                                    question_num=voter_data['question']))
+                                    question_num=current_user.current))
 
     # check login details on login
     form = LoginForm(request.form)
@@ -234,32 +222,32 @@ with that ID."]
             login_user(voter)
 
             # protect against open redirects
+            
             #next_endpoint = request.args.get('next')
             #if not isSafeUrl(next_endpoint):
             #    return abort(400)
 
             # if the user has finished voting, send to results page
             return redirect(url_for("voting", election_id=election_id,
-                                    question_num=voter_data['question']))
+                                    question_num=current_user.current))
         else:
-            errors.append("Your email address and/or election code are incorrect.")
-    return render_template("login.html", form=form, election_id=election_id,
-                           errors=errors)
+            flash("Your email address and/or election code are incorrect.", 'error')
+    return render_template("login.html", form=form, election_id=election_id)
 
 @main.route("/<string:election_id>/vote/<int:question_num>", methods=["GET", "POST"])
 @login_required
 def voting(election_id: str, question_num: int):
-    # for users that have finished voting, send them to the results page
-    if current_user.voted:
-        return redirect(url_for("results", election_id=election_id))
-
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
+
+    # for users that have finished voting, send them to the results page
+    if current_user.voted:
+        return redirect(url_for("results", election_id=clean_id))
     
     # make a Form from the Question object
     question = getQuestionByNum(clean_id, clean_num)
     if question is None:
-        session['errors'] = ['Something went wrong when trying to fetch that question']
+        flash('Something went wrong when trying to fetch that question', 'error')
         return redirect(url_for("voteLogin", election_id=clean_id))
     form = QuestionForm(question, request.form)
     errors = []
@@ -270,122 +258,125 @@ def voting(election_id: str, question_num: int):
             choice = [form.q_single_choice.data]
 
         # do proofs, make receipts, sign data etc. etc.
-        receipt = firstReceipt(question, clean_id, session['id'], choice)
+        receipt = firstReceipt(question, clean_id, current_user.voter_id, choice)
         if receipt is None:
-            errors.append('Something went wrong with your ballot, try again.')
+            flash('Something went wrong with your ballot, try again.', 'error')
         else:
-            private_key = getPrivateKey()
+            
             # note we truncate the the hash to 50 hex characters for ease of
             # validation. This does not seriously affect the security of the
             # program!
             session['hash'] = hashString(json.dumps(receipt)).upper()[:50]
             session['receipt'] = receipt
-            session['first_sign'] = signData(session['hash'], private_key)    
+            private_key = getPrivateKey()
+            session['sign'] = signData(session['hash'], private_key)    
             session['public_key'] = sKeyToBytestr(private_key.verifying_key)
-            if updateVoteReceipt(session['first_sign'], session['hash'],
+            if updateVoteReceipt(session['sign'], session['hash'],
                                  receipt['ballot_id']) is None:
                 deleteBallot(receipt['ballot_id'])
-                errors.append("Could not sign your ballot, please try again.")
+                flash("Could not sign your ballot, please try again.", 'error')
             else:
                 return redirect(url_for("auditOrConfirm", election_id=clean_id,
                                         question_num=clean_num))
-    return render_template("voting.html", form=form, errors=form.errors,
-                           election_id=clean_id)
+    return render_template("voting.html", form=form, election_id=clean_id,
+                           errors=form.errors)
 
 @main.route("/<string:election_id>/vote/<int:question_num>/audit", methods=["GET", "POST"])
 @login_required
 def auditOrConfirm(election_id: str, question_num: int):
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
-    if 'id' not in session:
-        session['errors'] = ['Please login before trying to vote.']
-        return redirect(url_for("voteLogin", election_id=clean_id))
-    if not validSessionData(session['id'], clean_id, clean_num):
-        session['errors'] = ['Invalid session data passed, login again.']
-        return redirect(url_for("voteLogin", election_id=clean_id))
-    if 'public_key' not in session or 'first_sign' not in session \
-       or 'hash' not in session:
-        session['errors'] = ['Bad session data, please try again.']
+    if 'public_key' not in session or 'sign' not in session \
+       or 'hash' not in session or 'receipt' not in session:
+        flash('Bad session data, please try again.', 'error')
+        clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
+    
     public_key = bytestrToVKey(session['public_key'])
-    if not verifyData(session['hash'], public_key, session['first_sign']):
-        session['errors'] = ['Could not verify vote receipt, please try again.']
-        clearSession(session, ['hash', 'public_key', 'first_sign', 'receipt'])
+    if not verifyData(session['hash'], public_key, session['sign']):
+        flash('Could not verify vote receipt, please try again.', 'error')
+        clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
+    
     form = AuditForm(request.form)
-    errors = []
     if form.validate_on_submit():
         private = getPrivateKey()
         if form.audit.data and not form.confirm.data:
             # audit the ballot and go back to question
-            receipt_data = auditBallot(session['question_id'],
-                                       session['ballot_id'])
-            if receipt_data is None:
-                errors.append('Could not fetch ballot data, try again.')
+            receipt = auditBallot(session['receipt'])
+            if receipt is None:
+                flash('Could not fetch ballot data, try again.', 'error')
             else:
-                # sign the ballot in JSON form
-                #new_receipt = json.dumps(receipt_data)
-                #new_signature = signData(new_receipt, private)
-                #if updateAuditReceipt(session['ballot_id'], new_signature) \
-                #   is None:
-                #    errors.append('Could not sign audited ballot.')
-                #else:
-                #clearSession(session, ['receipt', 'signature'])
-                session['audited'] = prettyReceipt(session['receipt'])
-                session['secret'] = receipt_data['choices'][0]['secret']
-                session['vote'] = receipt_data['choices'][0]['vote']
-                session['audit_sign'] = session['signature']
-                return redirect(url_for('voting', election_id=clean_id,
+                # sign AUDITED ballot
+                session['hash'] = hashString(json.dumps(receipt)).upper()[:50]
+                session['receipt'] = receipt
+                session['sign'] = signData(session['hash'], getPrivateKey())
+                return redirect(url_for('showBallot', election_id=clean_id,
                                         question_num=clean_num))
+            
         elif not form.audit.data and form.confirm.data:
             # confirm selection and go to next question
-            updateAuditBallot(session['ballot_id'], audited=False)
-            incrementTallies(session['ballot_id'])
-            deleteSecrets(session['ballot_id'])
-            voter_id = getVoterFromSession(session['id'])
-            new_num = nextQuestion(voter_id)
-            session['confirmed'] = prettyReceipt(hashString(session['json']).upper()[:50])
-            session['confirm_sign'] = signData(session['confirmed'], private)
-            # if all questions have been completed then move to bulletin board
-            if new_num > totalQuestions(clean_id):
-                completeVoting(voter_id)
-                return redirect(url_for('results', election_id=clean_id))
-            return redirect(url_for('voting', election_id=clean_id,
-                                    question_num=new_num))
+            receipt = confirmBallot(session['receipt'])
+            incrementTallies(receipt['ballot_id'])
+            deleteSecrets(receipt['ballot_id'])
+            # increment the question counter for the voter
+            current_user.nextQuestion()
+            nextQuestion(current_user.voter_id, current_user.current)
+            # sign CONFIRMED ballot
+            session['hash'] = hashString(json.dumps(receipt)).upper()[:50]
+            session['sign'] = signData(session['hash'], getPrivateKey())
+            session['receipt'] = receipt
+            # check if all questions have now been completed
+            if current_user.current > totalQuestions(clean_id):
+                completeVoting(current_user.voter_id)
+            return redirect(url_for('showBallot', election_id=clean_id,
+                                    question_num=current_user.current))
         else:
-            errors.append('Please either choose to audit or confirm your ballot.')
-    return render_template("audit.html", form=form, errors=errors, clean_id=clean_id,
-                           receipt=prettyReceipt(session['receipt']))
+            flash('Please either choose to audit or confirm your ballot.', 'error')
+    return render_template("audit.html", form=form, clean_id=clean_id,
+                           num_choices=len(session['receipt']['choices']))
+
+@main.route("/<string:election_id>/vote/<int:question_num>/ballot", methods=["GET", "POST"])
+@login_required
+def showBallot(election_id: str, question_num: int):
+    clean_id = escape(election_id)
+    clean_num = int(escape(question_num))
+    if 'public_key' not in session or 'sign' not in session \
+       or 'hash' not in session or 'receipt' not in session:
+        flash('Bad session data, please try again.', 'error')
+        clearSession(session)
+        return redirect(url_for('voting', election_id=clean_id,
+                                question_num=clean_num))
+    
+    public_key = bytestrToVKey(session['public_key'])
+    if not verifyData(session['hash'], public_key, session['sign']):
+        flash('Could not verify vote receipt, please try again.', 'error')
+        clearSession(session)
+        return redirect(url_for('voting', election_id=clean_id,
+                                question_num=clean_num))
+    audited = session['receipt']['state'] == 'AUDITED'
+    form = SubmitForm(request.form)
+    if form.validate_on_submit():
+        session.pop('receipt')
+        session.pop('sign')
+        session.pop('hash')
+        session.pop('public_key')
+        return redirect(url_for('voting', election_id=clean_id,
+                                question_num=clean_num))
+    return render_template("ballot.html", election_id=clean_id,
+                           form=form, audited=audited,
+                           num_choices=len(session['receipt']['choices']))
 
 @main.route("/<string:election_id>/results", methods=["GET"])
 def results(election_id: str):
     clean_id = escape(election_id)
-    if 'id' not in session:
-        session['errors'] = ['Please login before trying to access the bulletin board.']
-        return redirect(url_for('voteLogin', election_id=clean_id))
-    voter_id = getVoterFromSession(session['id'])
-    audited = getAuditedReceipts(clean_id)
-    confirmed = getConfirmedReceipts(clean_id)
-    user_receipts = {"audited":[],
-                     "confirmed":[]}
-    for d in audited:
-        if d['voter'] == voter_id:
-            user_receipts['audited'].append(d['receipt'])
-    for d in confirmed:
-        if d['voter'] == voter_id:
-            user_receipts['confirmed'].append(d['receipt'])
-    election, errors = getElectionFromDb(clean_id)
-    # each question has a different tally for each choice
-    totals = {}
-    for question in election.questions:
-        totals[question.question_id] = []
-        question_tallies = getQuestionTallies(question.question_id)
-        for choice, tally, sum in question_tallies:
-            totals[question.question_id].append({"choice":choice,
-                                                 "tally":tally,
-                                                 "sum":sum})
-    return render_template("bulletin.html", user_receipts=user_receipts,
-                           audited=audited, confirmed=confirmed,
+    election = getElectionFromDb(clean_id)
+    if election is None:
+        flash("Could not find an election with that ID!", "error")
+        return redirect(url_for("view"))
+    receipts = getBallots(election)
+    totals = electionTotals(election)
+    return render_template("bulletin.html", receipt_list=receipts,
                            election=election, totals=totals)

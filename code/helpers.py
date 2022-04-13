@@ -9,7 +9,7 @@ from Voter import Voter
 from Election import Election
 from Question import Question
 from crypto import (generateRandSecret, generateR, generateZ, generateZKProof,
-                    generatePair, hashString)
+                    generatePair, hashString, generateNumProof)
 
 from urllib.parse import urlparse, urljoin
 from uuid import uuid4
@@ -161,12 +161,13 @@ of voters and store them correctly before passing them to DRE-ipy.
             # reject outright for maximum accessibility
             fname = row['fname'][:FNAME_MAX_LENGTH]
             lname = row['lname'][:LNAME_MAX_LENGTH]
+            name = f"{fname[0].upper()}{fname[1:]} {lname[0].upper()}{lname[1:]}"
             postcode = row['postcode'][:POSTCODE_MAX_LENGTH]
             hash = hashString(row['pass'])
             if not row['fname'] or not row['lname'] or not row['postcode']:
                 flash("Empty field found in CSV file. Please make sure that all fields are filled out with the appropriate data.")
                 return None
-            voters.append(Voter(makeID(), election_id, fname, lname, postcode,
+            voters.append(Voter(makeID(), election_id, name, postcode,
                                 uname, dob, hash))
     return voters
 
@@ -204,22 +205,23 @@ def hexToMpz(hexstring: Union[str, int]) -> mpz:
     return gmpy2.mpz_from_old_binary(bytes.fromhex(hexstring))
 
 def truncHash(hash_str: str) -> str:
-    """Given some string digest of a hash, truncate to HASH_LENGTH characters
-for ease of comparison for the user."""
-    return hash_str.upper()[:HASH_LENGTH]
+    """
+    Given some string digest of a hash, truncate to the *last*
+    HASH_LENGTH characters for ease of comparison for the user.
+    """
+    return hash_str.upper()[-HASH_LENGTH:]
 
-def firstReceipt(question: Question, election_id: str, session_id: str,
+def firstReceipt(question: Question, election_id: str, voter_id: str,
                  choices: List[str]) -> Optional[dict]:
-    from db import getNewBallotID, insertBallot, getVoterFromSession
+    from db import getNewBallotID, insertBallot, addNumProofs
     
     ## go through all the possible choices to do proofs and add to receipt
     gen_2 = question.gen_2
     ballot_id = str(getNewBallotID(question.question_id))
-    receipt_data = {"election_d":election_id,
+    receipt_data = {"election_id":election_id,
                     "question_id":question.question_id,
                     "ballot_id":ballot_id,
                     "choices":[]}
-    voter_id = getVoterFromSession(session_id)
     question_id = question.question_id
     num_choices = len(question.choices)
     R_list = []
@@ -227,7 +229,7 @@ def firstReceipt(question: Question, election_id: str, session_id: str,
     r_list = []
     for choice in range(num_choices):
         # was this choice voted on?
-        voted = str(choice) in choices
+        voted = choice in choices
         
         # Make receipts and secret
         r = generateRandSecret()
@@ -238,18 +240,17 @@ def firstReceipt(question: Question, election_id: str, session_id: str,
         c_1, c_2, r_1, r_2 = generateZKProof(question_id, gen_2, R, Z, r)
 
         # Add ballot to question
-        if insertBallot(ballot_id, question_id, r, R, Z, r_1, r_2,
-                        c_1, c_2, choice, election_id, voter_id) is None:
+        if insertBallot(ballot_id, question_id, hex(r)[2:], R, Z, r_1, r_2,
+                        c_1, c_2, choice, election_id, voted) is None:
             return None
         receipt_data['choices'].append({
+            "choice":question.choices[choice],
             "Z":truncHash(pointToBytestr(Z)),
             "R":truncHash(pointToBytestr(R)),
-            "proof":{
-                "c_1":truncHash(str(c_1)),
-                "c_2":truncHash(str(c_2)),
-                "r_1":truncHash(str(r_1)),
-                "r_2":truncHash(str(r_2))
-                }
+            "c_1":truncHash(c_1),
+            "c_2":truncHash(c_2),
+            "r_1":truncHash(r_1),
+            "r_2":truncHash(r_2)
             })
 
         # add receipts and secret to list for final proof
@@ -262,38 +263,54 @@ def firstReceipt(question: Question, election_id: str, session_id: str,
                                     num_choices)
     if addNumProofs(ballot_id, num_c, num_r) is None:
         return None
-    receipt_data['num_proof_c'] = truncHash(str(num_c))
-    receipt_data['num_proof_r'] = truncHash(str(num_r))
+    receipt_data['num_proof_c'] = truncHash(num_c)
+    receipt_data['num_proof_r'] = truncHash(num_r)
 
     ## Get hash of data and insert into database with our signature, before
     # before returning it
     return receipt_data
 
-def auditBallot(question_id: str, ballot_id: str) -> Optional[dict]:
-    """Marks a ballot as 'audited' and creates a new signature."""
-    from db import getBallotData, updateAuditBallot
-    receipt_list = getBallotData(ballot_id)
-    if receipt_list is None:
+def auditBallot(old_receipt: dict) -> Optional[dict]:
+    """Marks a ballot as 'audited' and adds its secrets."""
+    from db import updateAuditBallot, getBallotData
+    old_receipt['state'] = 'AUDITED'
+    secret_list = getBallotData(old_receipt['ballot_id'])
+    if secret_list is None:
         return None
-    receipt_data = {
-        "ballot":"AUDITED",
-        "question_id":question_id,
-        "ballot_id":ballot_id,
-        "choices":[]}
-    for R, Z, secret, index, choice, c_1, c_2, r_1, r_2 in receipt_list:
-        receipt_data['choices'].append({
-            "R":R,
-            "Z":Z,
-            "secret": secret,
-            "vote":choice,
-            "choice_id":index,
-            "proof":{
-                "c_1":c_1,
-                "c_2":c_2,
-                "r_1":r_1,
-                "r_2":r_2
-                }
-            })
-    if updateAuditBallot(ballot_id, audited=True) is None:
-        return None
-    return receipt_data
+    for i in range(len(secret_list)):
+        secret, voted = secret_list[i]
+        old_receipt['choices'][i]['r'] = truncHash(secret)
+        old_receipt['choices'][i]['voted'] = str(bool(voted)).upper()
+    updateAuditBallot(old_receipt['ballot_id'], audited=True)
+    return old_receipt
+
+def confirmBallot(old_receipt: dict) -> Optional[dict]:
+    """Marks a ballot as 'confirmed'."""
+    from db import updateAuditBallot
+    old_receipt['state'] = 'CONFIRMED'
+    updateAuditBallot(old_receipt['ballot_id'], audited=False)
+    return old_receipt
+
+def electionTotals(election: Election) -> Optional[dict]:
+    """
+    Given an election object, returns a dictionary of the totals
+    calculated for it.
+    """
+    from db import getQuestionTallies
+    totals = {}
+    for question in election.questions:
+        totals[question.question_id] = {
+            "num_choices": question.num_choices,
+            "choices": []}
+        results = getQuestionTallies(question.question_id)
+        if results is None:
+            flash(f"Could not get tallies for question ID: {question.question_id}",
+                  "error")
+            return None
+        for choice, tally, sum in results:
+            totals[question.question_id]['choices'].append({
+                "choice": choice,
+                "tally": tally,
+                "sum": truncHash(sum)
+                })
+    return totals

@@ -47,14 +47,13 @@ https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf
 
 import gmpy2
 from gmpy2 import mpz, powmod, divexact
-
 from ecdsa import NIST256p, SigningKey, VerifyingKey
 from ecdsa.ellipticcurve import Point, INFINITY
 from cryptography.hazmat.primitives import hashes
 
 from secrets import randbelow
 from base64 import b64encode
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 # first generator, g, instantiated with domain parameters of NIST
 # ecdsa.ellipticcurve.PointJacobi
@@ -156,7 +155,7 @@ def generateZ(r: mpz, v: int) -> Point:
     return (g1 * r) + (g1 * v)
 
 def generateZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz) \
-    -> Tuple[mpz, mpz, mpz, mpz]:
+    -> Tuple[str, str, str, str]:
     """Zero-knowledge proof of knowledge and equality of the following discrete
 logarithms:
 P_K{S: (G_1 = g_1^S AND G_2 = g_2^S) OR (G_3 = g_3^S AND G_3 = g_3^S)}
@@ -180,6 +179,10 @@ This method needs to therefore be run for each R, Z, r tuple.
     G_2 = R
     G_3 = Z
     G_4 = R
+
+    # note that we repeat the same generators
+    g3 = g1
+    g4 = g2
     
     t_1 = g1 * w
     t_2 = g2 * w
@@ -190,9 +193,9 @@ This method needs to therefore be run for each R, Z, r tuple.
     c = proofZKHash(question_id, g1, G_1, g2, G_2, g3, G_3, g4, G_4, t_1, t_2,
                     t_3, t_4)
 
-    # calculate remaining secrets and return
-    c_1 = c - c_2
-    return (c_1, c_2, w - (c_1 * r), r_2)
+    # calculate remaining secrets and return hashes as hex
+    c_1 = abs(c - c_2)
+    return (hex(c_1)[2:], hex(c_2)[2:], hex(abs(w - (c_1 * r)))[2:], hex(r_2)[2:])
 
 def verifyZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz,
                   proof_c1: mpz, proof_c2: mpz, proof_r1: mpz, proof_r2: mpz) \
@@ -201,6 +204,9 @@ def verifyZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz,
     G_2 = R
     G_3 = Z
     G_4 = R
+
+    g3 = g1
+    g4 = g2
 
     t_1 = (g1 * proof_r1) + (G_1 * proof_c1)
     t_2 = (g2 * proof_r1) + (G_2 * proof_c1)
@@ -216,22 +222,41 @@ def verifyZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz,
 def proofNumHash(proof_id: str, g1: Point, G_1: Point, g2: Point, G_2: Point,
                  t_1: Point, t_2: Point) -> mpz:
     """Returns a hash calculated by a tuple of arguments and passed through."""
+    from helpers import pointToBytestr
     tup = (proof_id, pointToBytestr(g1), pointToBytestr(G_1), pointToBytestr(g2),
            pointToBytestr(G_2), pointToBytestr(t_1), pointToBytestr(t_2))
-    return mpz(int.from_bytes(hashString(str(tup)), byteorder="big"))
+    return mpz(int.from_bytes(bytes.fromhex(hashString(str(tup))),
+                              byteorder="big")
+               )
 
 def proofZKHash(proof_id: str, g1: Point, G_1: Point, g2: Point, G_2: Point,
                 g3: Point, G_3: Point, g4: Point, G_4: Point, t_1: Point,
                 t_2: Point, t_3: Point, t_4: Point) -> mpz:
+    from helpers import pointToBytestr
     tup = (proof_id, pointToBytestr(g1), pointToBytestr(G_1), pointToBytestr(g2),
            pointToBytestr(G_2), pointToBytestr(g3), pointToBytestr(G_3),
            pointToBytestr(g4), pointToBytestr(G_4), pointToBytestr(t_1),
            pointToBytestr(t_2), pointToBytestr(t_3), pointToBytestr(t_4))
-    return mpz(int.from_bytes(hashString(str(tup)), byteorder="big"))
+    return mpz(int.from_bytes(bytes.fromhex(hashString(str(tup))),
+                              byteorder="big")
+               )
+
+def pointSum(point_list: List[Point]) -> Optional[Point]:
+    """Given a list of Points, successively adds them together and returns
+the result. If the list is empty then returns None."""
+    if not point_list:
+        return None
+
+    curr_point = point_list[0]
+    for i in range(1, len(point_list)):
+        next_point = point_list[i]
+        curr_point = curr_point + next_point
+
+    return curr_point
 
 def generateNumProof(question_id: str, g2: Point,  R_list: List[Point],
                      Z_list: List[Point], r_list: List[mpz], num_choices: int) \
-                     -> Tuple[mpz, mpz]:
+                     -> Tuple[str, str]:
     """Zero-knowledge proof of knowledge and equality of form:
 
 P_K{S: G_1 = g_1^S AND G_2 = g_2^S}
@@ -239,7 +264,6 @@ P_K{S: G_1 = g_1^S AND G_2 = g_2^S}
 that exactly k votes in a ballot are 1:
 ((PROD{Z} div g1^k = g1^r_sum) AND (PROD{R} = g2^r_sum))
 """
-    from helpers import pointToBytestr
     # choose random w in group Z order q
     w = generateRandSecret()
 
@@ -249,14 +273,15 @@ that exactly k votes in a ballot are 1:
 
     # Calculate products (note that in elliptic curve settings multiplication
     # is done successively adding points on the curve)
-    G_1 = sum(Z_list) + (-g1 * num_choices)
-    G_2 = sum(R_list)
+    
+    G_1 = pointSum(Z_list) + (-g1 * num_choices)
+    G_2 = pointSum(R_list)
 
     # calculate proof hash
-    c = proofHash(question_id, g1, G_1, g2, G_2, t_1, t_2)
+    c = proofNumHash(question_id, g1, G_1, g2, G_2, t_1, t_2)
 
-    # calculate our secret values (c, r) by summing all individual secrets
-    return (c, w - (c * sum(r_list)))
+    # if difference < 0 then must make positive to account for the '-' sign
+    return (hex(c)[2:], hex(abs(w - (c * sum(r_list))))[2:])
 
 def verifyNumProof(question_id: str, g2: Point, R_list: List[Point],
                    Z_list: List[Point], proof_c: mpz, proof_r: mpz,
@@ -264,15 +289,14 @@ def verifyNumProof(question_id: str, g2: Point, R_list: List[Point],
     """Returns whether or not a given proof of knowledge and equality for the
 number of votes in a tally is valid.
 """
-    from helpers import pointToBytestr
 
     # calculate known products
-    G_1 = sum(Z_list) + (-g1 * num_choices)
-    G_2 = sum(R_list)
+    G_1 = pointSum(Z_list) + (-g1 * num_choices)
+    G_2 = pointSum(R_list)
 
     # calculate exponentiations with proofs and bases
     t_1 = (g1 * proof_r) + (G_1 * proof_c)
     t_2 = (g2 * proof_r) + (G_2 * proof_c)
 
     # compare hashes
-    return proof_c == proofHash(question_id, g1, G_1, g2, G_2, t1, t2)
+    return proof_c == proofNumHash(question_id, g1, G_1, g2, G_2, t1, t2)
