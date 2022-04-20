@@ -78,6 +78,10 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
         return self._questions
 
     @property
+    def num_questions(self) -> int:
+        return len(self.questions)
+
+    @property
     def start_time(self) -> datetime:
         return self._start_time
 
