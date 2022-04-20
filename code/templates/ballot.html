@@ -5,77 +5,31 @@
 {% block body %}
 
 {% if audited %}
-<h1>Your vote has been AUDITED. You will be sent to the previous question where you can submit another vote and either audit it again, or confirm it and move on to the next page..</h1>
+<h2>Your vote has been AUDITED. Your choice has been shown below, please verify that it was indeed the choice(s) that you made. Since you audited this ballot, you will be sent back to the question you just voted for, where you can submit another vote and either audit it again, or confirm it and move on with the election.</h2>
 {% else %}
-<h1>Your vote has been CONFIRMED. Your vote has been counted and your vote's secrets have been securely deleted. You will be sent to the next page.</h1>
+<h2>Your vote has been CONFIRMED. Your choices were added to the tally for the respective candidate(s), and then the vote secrets were securely deleted. Below is the final receipt for your ballot which you can check on the link below; once you have confirmed that it has been recorded, click the button to get sent to the next question.</h2>
 {% endif %}
 
-<h2>Vote receipt:</h2>
+<h3>If there is an issue, please contact: {{ contact }}</h3>
 
-<div class="stage-two">
-    <h1>VOTING STAGE TWO</h1>
-    <h2>Election ID: {{ session['receipt']['election_id'] }}</h2>
-    <table>
-        <tr>
-            <th>Ballot ID</th>
-            <th>Question ID</th>
-            <th>Choice</th>
-            <th>Z</th>
-            <th>R</th>
-            <th>C1</th>
-            <th>C2</th>
-            <th>R1</th>
-            <th>R2</th>
-            <th>Num C</th>
-            <th>Num R</th>
-            <th>Audited?</th>
-            <th>Secret</th>
-            <th>Voted?</th>
-        </tr>
-        {% if audited %}
-            {% for i in range(num_choices) %}
-                {% with row = session['receipt']['choices'][i] %}
-                    <tr>
-                        <td>{{ session['receipt']['ballot_id'] }}</td>
-                        <td>{{ session['receipt']['question_id'] }}</td>
-                        <td>{{ row['choice'] }}</td>
-                        <td>{{ row['Z'] }}</td>
-                        <td>{{ row['R'] }}</td>
-                        <td>{{ row['c_1'] }}</td>
-                        <td>{{ row['c_2'] }}</td>
-                        <td>{{ row['r_1'] }}</td>
-                        <td>{{ row['r_2'] }}</td>
-                        <td>{{ session['receipt']['num_proof_c'] }}</td>
-                        <td>{{ session['receipt']['num_proof_r'] }}</td>
-                        <td class="audit">AUDITED</td>
-                        <td class="audit">{{ row['r'] }}</td>
-                        <td class="audit">{{ row['voted'] }}</td>
-                    </tr>
-                {% endwith %}
-            {% endfor %}
-        {% else %}
-            {% for i in range(num_choices) %}
-                {% with row = session['receipt']['choices'][i] %}
-                    <tr>
-                        <td>{{ session['receipt']['ballot_id'] }}</td>
-                        <td>{{ session['receipt']['question_id'] }}</td>
-                        <td>{{ row['choice'] }}</td>
-                        <td>{{ row['Z'] }}</td>
-                        <td>{{ row['R'] }}</td>
-                        <td>{{ row['c_1'] }}</td>
-                        <td>{{ row['c_2'] }}</td>
-                        <td>{{ row['r_1'] }}</td>
-                        <td>{{ row['r_2'] }}</td>
-                        <td>{{ session['receipt']['num_proof_c'] }}</td>
-                        <td>{{ session['receipt']['num_proof_r'] }}</td>
-                        <td class="confirm">CONFIRMED</td>
-                        <td class="confirm">DELETED</td>
-                        <td class="confirm">DELETED</td>
-                    </tr>
-                {% endwith %}
-            {% endfor %}
-        {% endif %}
-    </table>
+<div>
+    <h1>VOTING STAGE ONE:</h1>
+    <h2>Election ID: {{ election_id }}</h2>
+    <h2>Question ID: {{ session['receipt']['question_id'] }}</h2>
+    <h2>Ballot ID: {{ session['receipt']['ballot_id'] }}</h2>
+    <h2>Receipt:</h2>
+    <h2>{{ pretty_hash }}</h2>
+    
+    <h1>VOTING STAGE TWO:</h1>
+    {% if audited %}
+        <h2>Ballot AUDITED</h2>
+        <h2>Choice(s): {{ session['choices'] }}</h2>
+    {% else %}
+        <h2>Ballot CONFIRMED</h2>
+        <h2>Choice(s): DELETED</h2>
+    {% endif %}
+    
+    <h3>Visit <a href="{{ url_for('results', election_id=election_id) }}">the bulletin board</a> to check that your receipt has been stored!</h3>
 </div>
 
 <form action="" method="post">

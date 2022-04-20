@@ -1,70 +1,74 @@
 {% extends "base.html" %}
 {% block title %}Bulletin{% endblock %}
 {% block body %}
-<h1>Bulletin for Election: {{ election.title }}</h1>
+<h1>Bulletin for Election ID: {{ election.election_id }}</h1>
 
-<div>
-    <h2>Election Results:</h2>
-        {% for question in election.questions %}
-            <div>
-                <h3>{{ question.query }}</h3>
-                {% for d in totals[question.question_id]['choices'] %}
-                    <h4>  Choice: {{ d['choice'] }}</h4>
-                    <h4>    Total votes: {{ d['tally'] }}</h4>
-                    <h4>    Secret sum: {{ d['sum'] }}</h4>
-                {% endfor %}
-            </div>
-            </br>
-        {% endfor %}
-</div>
+<h1>Election Title: {{ election.title }}</h1>
 
-<div class="bulletin">
-    <h1>BALLOTS:</h1>
-    <table>
-        <tr>
-            <th>Ballot ID</th>
-            <th>Question ID</th>
-            <th>Choice</th>
-            <th>Z</th>
-            <th>R</th>
-            <th>C1</th>
-            <th>C2</th>
-            <th>R1</th>
-            <th>R2</th>
-            <th>Num C</th>
-            <th>Num R</th>
-            <th>Audited?</th>
-            <th>Secret</th>
-            <th>Voted?</th>
-        </tr>
-        {% for receipt in receipt_list %}
-            {% for i in range(totals[receipt['question_id']]['num_choices']) %}
-                {% with row = receipt['choices'][i] %}
-                    <tr>
-                        <td>{{ receipt['ballot_id'] }}</td>
-                        <td>{{ receipt['question_id'] }}</td>
-                        <td>{{ row['choice'] }}</td>
-                        <td>{{ row['Z'] }}</td>
-                        <td>{{ row['R'] }}</td>
-                        <td>{{ row['c_1'] }}</td>
-                        <td>{{ row['c_2'] }}</td>
-                        <td>{{ row['r_1'] }}</td>
-                        <td>{{ row['r_2'] }}</td>
-                        <td>{{ receipt['num_proof_c'] }}</td>
-                        <td>{{ receipt['num_proof_r'] }}</td>
-                        {% if receipt['state'] == 'AUDITED' %}
-                            <td class="audit">AUDITED</td>
-                            <td class="audit">{{ row['r'] }}</td>
-                            <td class="audit">{{ row['voted'] }}</td>
-                        {% else %}
-                            <td class="confirm">CONFIRMED</td>
-                            <td class="confirm">{{ row['r'] }}</td>
-                            <td class="confirm">{{ row['voted'] }}</td>
+{% if election.status.name == "CLOSED" %}
+    <h2>Election Completed! You can download a JSON file of all the election data to verify it <a href={{ url_for('download', election_id=election.election_id) }}>here</a>.</h2>
+{% else %}
+    <h2>Election still ongoing...</h2>
+{% endif %}
+
+<h3>If there is an issue, please contact: {{ contact }}</h3>
+
+<div class="tab-wrap">
+    {% for i in range(election.num_questions) %}
+        {% with question = election.questions[i] %}
+            <div class="tab">
+                <input class="tab-radio" type="radio" id="tab-{{ i }}" name="tabs" {% if i == 0 %}checked{% endif %}>
+                    <label class="tab-label" for="tab-{{ i }}">{{ question.query }}</label>
+                
+                <div class="tab-panel">
+                    <div class="tab-content">
+                        {% if totals %}
+                            <div class="results">
+                                <h3>Question Results:</h3>
+                                <ul>
+                                {% for d in totals[question.question_id] %}
+                                    <li>Choice: {{ d['choice'] }} -- Total votes: {{ d['tally'] }}</li>
+                                {% endfor %}
+                                </ul>
+                            </div>
                         {% endif %}
-                    </tr>
-                {% endwith %}
-            {% endfor %}
-        {% endfor %}
-    </table>
+                        <div class="bulletin">
+                            <h1>BALLOTS:</h1>
+                            <h2>Question ID: {{ question.question_id }}</h2>
+                            <table>
+                                <tr>
+                                    <th>Ballot ID</th>
+                                    <th>Receipt</th>
+                                    <th>Choice(s)</th>
+                                    <th>Audited?</th>
+                                </tr>
+                                {% for receipt in receipt_list %}
+                                    {% if receipt['question_id'] == question.question_id %}
+                                        {% if receipt['audited'] %}
+                                            <tr class="audit">
+                                                <td>{{ receipt['ballot_id'] }}</td>
+                                                <td>{{ receipt['pretty'] }}</td>
+                                                
+                                                <td>{{ receipt['choices'] }}</td>
+                                                <td>AUDITED</td>
+                                            </tr>
+                                        {% else %}
+                                            <tr class="confirm">
+                                                <td>{{ receipt['ballot_id'] }}</td>
+                                                <td>{{ receipt['pretty'] }}</td>
+                                                
+                                                <td>DELETED</td>
+                                                <td>CONFIRMED</td>
+                                            </tr>
+                                        {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endwith %}
+    {% endfor %}
 </div>
 {% endblock %}

@@ -2,6 +2,7 @@ DROP TABLE IF EXISTS voters;
 DROP TABLE IF EXISTS elections;
 DROP TABLE IF EXISTS questions;
 DROP TABLE IF EXISTS ballots;
+DROP TABLE IF EXISTS receipts;
 DROP TABLE IF EXISTS choices;
 DROP TABLE IF EXISTS election_questions;
 DROP TABLE IF EXISTS keys;
@@ -43,23 +44,33 @@ CREATE TABLE questions (
 CREATE TABLE ballots (
   ballot_id BIGINT NOT NULL,
   election_id VARCHAR NOT NULL,
-  signature VARCHAR,
-  voted BOOLEAN,
-  hash VARCHAR,
-  choice_index INT,
   question_id VARCHAR NOT NULL,
   was_audited BOOLEAN,
+  num_r VARCHAR,
+  num_c VARCHAR,
+  hash_1 VARCHAR,
+  sign_1 VARCHAR,
+  hash_2 VARCHAR,
+  sign_2 VARCHAR,
+  json_1 VARCHAR,
+  json_2 VARCHAR,
+  FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE,
+  FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE
+);
+
+CREATE TABLE receipts (
+  receipt_id INTEGER PRIMARY KEY,
+  ballot_id BIGINT NOT NULL,
+  choice_index INT NOT NULL,
+  random_secret VARCHAR,
+  voted BOOLEAN,
   random_receipt VARCHAR NOT NULL,
   vote_receipt VARCHAR NOT NULL,
-  random_secret BIGINT,
   r_1 VARCHAR NOT NULL,
   r_2 VARCHAR NOT NULL,
   c_1 VARCHAR NOT NULL,
   c_2 VARCHAR NOT NULL,
-  num_r VARCHAR,
-  num_c VARCHAR,
-  FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE,
-  FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE
+  FOREIGN KEY (ballot_id) REFERENCES ballots(ballot_id) ON DELETE CASCADE
 );
 
 CREATE TABLE choices (
