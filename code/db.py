@@ -1,23 +1,24 @@
 import sqlite3
 import os
+import json
 from typing import Optional, List, Tuple, Dict, Any
 from ast import literal_eval
 from base64 import b64decode
 
 from helpers import (validateHash, bytestrToPoint, pointToBytestr,
                      generateSession, parseTime, bytestrToSKey, sKeyToBytestr,
-                     hexToMpz, truncHash)
+                     hexToMpz, truncHash, hexToString, prettyReceipt)
 from Election import Election
 from Voter import Voter
 from Status import Status, checkStatus
 from Question import Question
-from crypto import generateKeyPair
+from crypto import generateKeyPair, g1
 
 import click
 from gmpy2 import mpz
 from ecdsa import SigningKey
 from ecdsa.ellipticcurve import Point
-from flask import Flask, current_app, g, flash
+from flask import Flask, current_app, g, flash, Markup
 from flask.cli import with_appcontext
 
 def getDBConnection() -> Optional[sqlite3.Connection]:
@@ -316,6 +317,25 @@ def getElectionStatus(election_id: str) -> Optional[Status]:
     finally:
         cur.close()
 
+def getElectionContact(election_id: str) -> Optional[str]:
+    """Given an election ID, returns the contact for it."""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        row = cur.execute("""SELECT contact FROM elections
+                            WHERE election_id = ? LIMIT 1;""", (election_id,)
+                          ).fetchone()
+        if row is None:
+            return None
+        return row['contact']
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+
 def validVoterData(voter_id: str, election_id: str, question_num: int) \
     -> bool:
     """Checks that the passed session data aligns with what is stored in the
@@ -435,9 +455,34 @@ def getPrivateKey() -> Optional[SigningKey]:
     finally:
         cur.close()
 
-def insertBallot(ballot_id: str, question_id: str, r: str, R: Point,
-                 Z: Point, r_1: str, r_2: str, c_1: str, c_2: str,
-                 index: int, election_id: str, voted: bool) \
+def insertReceipt(ballot_id: int, r: str, R: Point, Z: Point, r_1: str,
+                  r_2: str, c_1: str, c_2: str, index: int, voted: bool) \
+                 -> Optional[bool]:
+    """
+    Inserts a receipt for a given question choice with its secrets (in hex form)
+    """
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        cur.execute("""INSERT INTO receipts (ballot_id, voted, choice_index,
+                    random_receipt, vote_receipt, random_secret, r_1, r_2, c_1,
+                    c_2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+                    (ballot_id, voted, index, pointToBytestr(R),
+                     pointToBytestr(Z), r, r_1, r_2, c_1, c_2)
+                    )
+        con.commit()
+        return True
+    except Exception as e:
+        print(e)
+        deleteBallot(ballot_id)
+        return None
+    finally:
+        cur.close()
+
+
+def insertNewBallot(ballot_id: str, question_id: str, election_id: str) \
                  -> Optional[bool]:
     """Inserts a ballot for a given question choice with its receipts and
 secrets (in hex form)"""
@@ -446,20 +491,17 @@ secrets (in hex form)"""
         return None
     try:
         cur = con.cursor()
-        cur.execute("""INSERT INTO ballots (ballot_id, election_id,
-                    signature, hash, voted, choice_index, question_id,
-                    was_audited, random_receipt, vote_receipt, random_secret,
-                    r_1, r_2, c_1, c_2, num_r, num_c)
-                    VALUES (?, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?, ?,
-                    ?, ?, ?, NULL, NULL);""",
-                    (int(ballot_id), election_id, voted, index, question_id,
-                     pointToBytestr(R), pointToBytestr(Z), r, r_1, r_2, c_1, c_2)
+        cur.execute("""INSERT INTO ballots (ballot_id, election_id, question_id,
+                    was_audited, num_r, num_c, hash_1, sign_1, hash_2, sign_2,
+                    json_1, json_2)
+                    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                    NULL, NULL);""",
+                    (ballot_id, election_id, question_id)
                     )
         con.commit()
         return True
     except Exception as e:
         print(e)
-        deleteBallot(ballot_id)
         return None
     finally:
         cur.close()
@@ -472,8 +514,7 @@ def addNumProofs(ballot_id: str, proof_c: mpz, proof_r: mpz) -> Optional[bool]:
     try:
         cur = con.cursor()
         cur.execute("""UPDATE ballots SET num_r = ?, num_c = ?
-                        WHERE ballot_id = ?;""", (proof_r, proof_c,
-                                                  int(ballot_id))
+                        WHERE ballot_id = ?;""", (proof_r, proof_c, ballot_id)
                     )
         con.commit()
         return True
@@ -484,17 +525,31 @@ def addNumProofs(ballot_id: str, proof_c: mpz, proof_r: mpz) -> Optional[bool]:
     finally:
         cur.close()
 
-def updateVoteReceipt(signature: str, data_hash: str, ballot_id: str) \
+def updateVoteReceipt(signature: str, data_hash: str, ballot_id: int, json_str: str,
+                      first_stage: bool) \
     -> Optional[bool]:
-    """Updates a ballot with its signature and hash in the database."""
+    """
+    Updates a ballot with its signature and hash for the first/second stage
+    in the database.
+    """
     con = getDBConnection()
     if con is None:
+        deleteBallot(ballot_id)
         return None
     try:
         cur = con.cursor()
-        cur.execute("""UPDATE ballots SET signature = ?, hash = ?
-                        WHERE ballot_id = ?;""", (signature, data_hash, int(ballot_id))
-                    )
+        if first_stage:
+            cur.execute("""UPDATE ballots
+                            SET sign_1 = ?, hash_1 = ?, json_1 = ?
+                            WHERE ballot_id = ?;""", (signature, data_hash,
+                                                      json_str, ballot_id)
+                        )
+        else:
+            cur.execute("""UPDATE ballots
+                            SET sign_2 = ?, hash_2 = ?, json_2 = ?
+                            WHERE ballot_id = ?;""", (signature, data_hash,
+                                                      json_str, ballot_id)
+                        )
         con.commit()
         return True
     except Exception as e:
@@ -504,7 +559,7 @@ def updateVoteReceipt(signature: str, data_hash: str, ballot_id: str) \
     finally:
         cur.close()
 
-def deleteBallot(ballot_id: str) -> Optional[bool]:
+def deleteBallot(ballot_id: int) -> Optional[bool]:
     """Deletes the ballot with the given ID. Used if an error occurs upon the
 audit or confirmation of a partially submitted ballot."""
     con = getDBConnection()
@@ -513,7 +568,7 @@ audit or confirmation of a partially submitted ballot."""
     try:
         cur = con.cursor()
         rows = cur.execute("""DELETE FROM ballots
-                            WHERE ballot_id = ?;""", (int(ballot_id),)
+                            WHERE ballot_id = ?;""", (ballot_id,)
                            )
         con.commit()
         return True
@@ -524,14 +579,14 @@ audit or confirmation of a partially submitted ballot."""
         cur.close()
     
 def getBallotData(ballot_id: str) -> Optional[List[Tuple]]:
-    """Returns the relevant receipts for a given ballot."""
+    """Returns the secrets for a given ballot."""
     con = getDBConnection()
     if con is None:
         return None
     try:
         cur = con.cursor()
         rows = cur.execute("""SELECT DISTINCT random_secret, voted
-                            FROM ballots AS b INNER JOIN choices AS c
+                            FROM receipts AS b INNER JOIN choices AS c
                             ON c.index_num = b.choice_index
                             WHERE b.ballot_id = ?;""", (int(ballot_id),)
                            ).fetchall()
@@ -544,7 +599,7 @@ def getBallotData(ballot_id: str) -> Optional[List[Tuple]]:
     finally:
         cur.close()
 
-def updateAuditBallot(ballot_id: str, audited: bool) -> Optional[bool]:
+def updateAuditBallot(ballot_id: int, audited: bool) -> Optional[bool]:
     """Marks a ballot with was_audited=True or False depending on if it was
 confirmed or not."""
     con = getDBConnection()
@@ -553,7 +608,7 @@ confirmed or not."""
     try:
         cur = con.cursor()
         cur.execute("""UPDATE ballots SET was_audited = ?
-                        WHERE ballot_id = ?;""", (int(audited), int(ballot_id))
+                        WHERE ballot_id = ?;""", (int(audited), ballot_id)
                     )
         con.commit()
         return True
@@ -564,15 +619,15 @@ confirmed or not."""
     finally:
         cur.close()
 
-def deleteSecrets(ballot_id: str) -> Optional[bool]:
+def deleteSecrets(ballot_id: int) -> Optional[bool]:
     """Deletes the vote and random secret from a confirmed ballot."""
     con = getDBConnection()
     if con is None:
         return None
     try:
         cur = con.cursor()
-        cur.execute("""UPDATE ballots SET random_secret = NULL,
-                        voted = NULL WHERE ballot_id = ?;""" , (int(ballot_id),)
+        cur.execute("""UPDATE receipts SET random_secret = NULL,
+                        voted = NULL WHERE ballot_id = ?;""" , (ballot_id,)
                     )
         con.commit()
         return True
@@ -589,17 +644,21 @@ def incrementTallies(ballot_id: str) -> Optional[bool]:
         return None
     try:
         cur = con.cursor()
-        rows = cur.execute("""SELECT b.question_id, choice_index, random_secret,
-                            tally_total, sum_total, voted
-                            FROM ballots AS b INNER JOIN choices AS c
-                            ON b.choice_index = c.index_num
-                            WHERE ballot_id = ?
+        rows = cur.execute("""SELECT b.question_id, r.choice_index, r.random_secret,
+                            r.voted, c.tally_total, c.sum_total
+                            FROM ((ballots AS b
+                            INNER JOIN receipts AS r
+                                ON b.ballot_id = r.ballot_id)
+                            INNER JOIN choices AS c
+                                ON r.choice_index = c.index_num
+                                AND b.question_id = c.question_id)
+                            WHERE b.ballot_id = ?
                             AND was_audited IS NOT NULL
-                            AND was_audited = 0;""", (int(ballot_id),)
+                            AND was_audited = 0;""", (ballot_id,)
                            ).fetchall()
         if rows is None:
             return None
-        for q_id, index, secret, current_tally, current_sum, voted in rows:
+        for q_id, index, secret, voted, current_tally, current_sum in rows:
             if bool(voted):
                 new_tally = current_tally + 1
                 new_sum = hex(hexToMpz(current_sum) + hexToMpz(secret))[2:]
@@ -672,82 +731,73 @@ def completeVoting(voter_id: str) -> Optional[bool]:
     finally:
         cur.close()
 
-def getBallots(election: Election) -> Optional[List[dict]]:
-    """
-    Given an election ID, returns all of the audited and confirmed receipts
-    in a list in ascending order of ballot ID.
-    """
+def getQuestionTallies(question_id: str) -> Optional[List[Tuple]]:
+    """Given a question, returns the tallies and sums for all its choices."""
     con = getDBConnection()
     if con is None:
         return None
     try:
         cur = con.cursor()
-        ballots = []
-        b_rows = cur.execute("""SELECT DISTINCT ballot_id, signature, hash,
-                                question_id, num_r, num_c, was_audited
-                                FROM ballots
-                                WHERE was_audited IS NOT NULL
-                                AND election_id = ?
-                                ORDER BY ballot_id ASC;""", (election.election_id,)
-                             ).fetchall()
-
-        if b_rows is None:
+        rows = cur.execute("""SELECT text, tally_total, sum_total
+                            FROM choices
+                            WHERE question_id = ?
+                            ORDER BY index_num ASC;""", (question_id,)
+                           ).fetchall()
+        if rows is None:
             return None
-        for b_id, sign, hash, q_id, num_r, num_c, audited in b_rows:
+        return rows
+    except Exception as e:
+        print(e)
+        return None
+    finally:
+        cur.close()
+
+def getBallots(election: Election) -> Optional[dict]:
+    """Returns a dictionary containing the non-truncated ballot data and
+signatures for a given election"""
+    con = getDBConnection()
+    if con is None:
+        return None
+    try:
+        cur = con.cursor()
+        rows = cur.execute("""SELECT ballot_id, question_id, was_audited, hash_1
+                            FROM ballots WHERE was_audited IS NOT NULL
+                            AND election_id = ?
+                            ORDER BY ballot_id;""", (election.election_id,)
+                           ).fetchall()
+        if rows is None:
+            flash("Could not get ballots", "error")
+            return None
+        ballots = []
+        for b_id, q_id, audited, hash_1 in rows:
+            
             audited = bool(audited)
-            if audited:
-                ballot = {
+            ballot = {
                     "ballot_id": int(b_id),
                     "question_id": q_id,
-                    "num_proof_c": truncHash(num_c),
-                    "num_proof_r": truncHash(num_r),
-                    "state": "AUDITED",
-                    "choices": []
+                    "audited": audited,
+                    "pretty": Markup(prettyReceipt(truncHash(hash_1))),
+                    "choices": ""
                     }
-            else:
-                ballot = {
-                    "ballot_id": int(b_id),
-                    "question_id": q_id,
-                    "num_proof_c": truncHash(num_c),
-                    "num_proof_r": truncHash(num_r),
-                    "state": "CONFIRMED",
-                    "choices": []
-                    }
-            rows = cur.execute("""SELECT voted, choice_index, 
-                            random_receipt, vote_receipt, random_secret,
-                            r_1, r_2, c_1, c_2 FROM ballots
-                            WHERE was_audited IS NOT NULL
-                            AND ballot_id = ?
-                            ORDER BY choice_index ASC;""", (int(b_id),)
-                               ).fetchall()
-            if rows is None:
+
+            # for audited ballots, get all the voted choices
+            choices = cur.execute("""SELECT text
+                                    FROM ((ballots AS b
+                                    INNER JOIN receipts AS r
+                                            ON b.ballot_id = r.ballot_id)
+                                    INNER JOIN choices AS c
+                                        ON r.choice_index = c.index_num
+                                            AND b.question_id = c.question_id)
+                                    WHERE b.ballot_id = ?
+                                    AND (was_audited = 1 AND voted = 1)
+                                    ORDER BY c.index_num ASC;""", (int(b_id),)
+                                  ).fetchall()
+            if choices is None:
                 return None
-            question = election.getQuestion(q_id)
-            for voted, index, R, Z, r, r_1, r_2, c_1, c_2 in rows:
-                if audited:   
-                    ballot['choices'].append({
-                        "choice":question.choices[int(index)],
-                        "Z": truncHash(Z),
-                        "R": truncHash(R),
-                        "c_1": truncHash(c_1),
-                        "c_2": truncHash(c_2),
-                        "r_1": truncHash(r_1),
-                        "r_2": truncHash(r_2),
-                        "r": truncHash(r),
-                        "voted":str(bool(voted)).upper()
-                        })
-                else:
-                    ballot['choices'].append({
-                        "choice":question.choices[int(index)],
-                        "Z": truncHash(Z),
-                        "R": truncHash(R),
-                        "c_1": truncHash(c_1),
-                        "c_2": truncHash(c_2),
-                        "r_1": truncHash(r_1),
-                        "r_2": truncHash(r_2),
-                        "r":"DELETED",
-                        "voted":"DELETED"
-                        })
+
+            for choice in choices:
+                ballot['choices'] += f"{choice['text']};<br>"
+            ballot['choices'] = Markup(ballot['choices'][:-5])
             ballots.append(ballot)
         return ballots
     except Exception as e:
@@ -756,20 +806,48 @@ def getBallots(election: Election) -> Optional[List[dict]]:
     finally:
         cur.close()
 
-
-def getQuestionTallies(question_id: str) -> Optional[List[Tuple]]:
-    """Given a question, returns the tallies and sums for all its choices."""
+def getJSONBallots(election: Election) -> Optional[dict]:
+    """Returns a dictionary containing the non-truncated ballot data and
+signatures for a given election"""
     con = getDBConnection()
     if con is None:
         return None
     try:
         cur = con.cursor()
-        rows = cur.execute("""SELECT text, tally_total, sum_total FROM choices
-                            WHERE question_id = ? ORDER BY index_num ASC;""", (question_id,)
+        rows = cur.execute("""SELECT ballot_id, b.question_id, was_audited,
+                            hash_1, sign_1, hash_2, sign_2, json_1, json_2, gen_2
+                            FROM ballots AS b INNER JOIN questions AS q
+                            ON b.question_id = q.question_id
+                            WHERE was_audited IS NOT NULL
+                            AND b.election_id = ?
+                            ORDER BY ballot_id;""", (election.election_id,)
                            ).fetchall()
         if rows is None:
+            flash("Could not get ballots", "error")
             return None
-        return rows
+        ballots = []
+        for b_id, q_id, audited, hash_1, sign_1, hash_2, sign_2, json_1, json_2, gen_2 \
+            in rows:
+            audited = bool(audited)
+            ballot = {
+                    "ballot_id": int(b_id),
+                    "question_id": q_id,
+                    "state": "AUDITED" if audited else "CONFIRMED",
+                    "gen_2": gen_2,
+                    "gen_1": pointToBytestr(g1),
+                    "stage_1": {
+                        "hash": hash_1,
+                        "sign": sign_1,
+                        "data": json.loads(hexToString(json_1))
+                        },
+                    "stage_2": {
+                        "hash": hash_2,
+                        "sign": sign_2,
+                        "data": json.loads(hexToString(json_2))
+                        }
+                    }
+            ballots.append(ballot)
+        return ballots
     except Exception as e:
         print(e)
         return None
