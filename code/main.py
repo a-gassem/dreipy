@@ -5,6 +5,7 @@ from flask_login import LoginManager, login_user, current_user, login_required
 
 from wtforms.validators import ValidationError
 from werkzeug.datastructures import CombinedMultiDict
+from markupsafe import escape
 
 from Voter import Voter
 from helpers import (parseTime, mergeTime, makeID, clearSession, firstReceipt,
@@ -15,7 +16,7 @@ from helpers import (parseTime, mergeTime, makeID, clearSession, firstReceipt,
 from forms import (ElectionForm, SubmitForm, ViewElectionForm, LoginForm,
                    QuestionForm, AuditForm)
 from db import (initApp, insertElection, getElectionFromDb, getVoterFromDb,
-                isElectionInDb, getElectionStatus, validVoterData,
+                isElectionInDb, getElectionStatus,
                 getQuestionByNum, getNewBallotID, getPrivateKey,
                 updateVoteReceipt, deleteBallot, getElectionContact,
                 updateAuditBallot, incrementTallies, deleteSecrets,
@@ -25,21 +26,34 @@ from crypto import signData, hashString, verifyData
 
 from typing import Optional
 from datetime import datetime
-from markupsafe import escape
+
 from secrets import token_bytes, token_hex
+from socket import gethostname, gethostbyname
 import json
 import jsonpickle
 import os
 
+# file/directory names and paths
 DB_NAME = "dreipy.sqlite"
 UPLOAD_FOLDER = "uploads/"
 DOWNLOAD_FOLDER = "json/"
 
-# maximum size of the uploaded CSV file (MiB)
+dbPath = os.path.join(main.instance_path, DB_NAME)
+uploadPath = os.path.join(main.instance_path, UPLOAD_FOLDER)
+downloadPath = os.path.join(main.instance_path, DOWNLOAD_FOLDER)
+
+# maximum size of the uploaded Voter CSV file (MiB)
 MAX_FILE_SIZE_LIMIT = 5
 
 # number of bytes to use when generating secrets
+# https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
 SECRET_BYTES = 32
+
+# for launch
+#my_host = f"http://{gethostbyname(gethostname())}"
+
+# for development on localhost
+my_host = f"http://127.0.0.1:5000"
 
 ## THINGS TO DO BEFORE DRAFT:
 # TODO: graph of results for candidates;
@@ -49,11 +63,7 @@ SECRET_BYTES = 32
 ## FLASK APP SETUP
 main = Flask(__name__)
 
-dbPath = os.path.join(main.instance_path, DB_NAME)
-uploadPath = os.path.join(main.instance_path, UPLOAD_FOLDER)
-downloadPath = os.path.join(main.instance_path, DOWNLOAD_FOLDER)
-
-# randomly generate a new secret key 
+# randomly generate a new secret key
 main.secret_key = token_bytes(SECRET_BYTES)
 main.config.from_mapping(
     SECRET_KEY = token_hex(SECRET_BYTES),
@@ -61,7 +71,9 @@ main.config.from_mapping(
     UPLOAD_FOLDER = uploadPath,
     JSON_FOLDER = downloadPath,
     MAX_CONTENT_LENGTH = MAX_FILE_SIZE_LIMIT * 1024 * 1024,
-    SESSION_COOKIE_SECURE = False   # we're not using HTTPS
+    SESSION_COOKIE_SECURE = False,   # we're not using HTTPS yet
+    SESSION_COOKIE_HTTPONLY = True,  # cookies cannot be read with JS
+    SESSION_COOKIE_SAMESITE = 'Strict'  # don't send cookies with any external requests
 )
 
 # force the use of CSRF tokens in forms
@@ -77,63 +89,106 @@ initApp(main)
 login_manager = LoginManager()
 login_manager.init_app(main)
 
+@main.after_request
+def after_request(response):
+    """Run after all requests to add key security headers."""
+    # forces Content-Type headers to be followed and not changed
+    # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+
+    # stop clickjacking attacks
+    # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+
+    # CSP: only allow the user agent to load resources from 'self' apart
+    # from scripts which can come from jQuery source AND our form.js file
+    # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy
+    response.headers['Content-Security-Policy'] = f"default-src 'self'; \
+script-src https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js \
+{my_host}{url_for('static', filename='form.js')}"
+    
+    return response
+
 @login_manager.user_loader
 def load_voter(voter_id: str) -> Optional[Voter]:
+    """
+    Callback used to reload the Voter object from their ID stored in the
+    session by making call to database.
+    """
     return getVoterById(voter_id)
 
 @login_manager.unauthorized_handler
 def unauthorised():
+    """
+    Callback for attempting to access endpoints that require authentication
+    when the user is not authenticated (and hence unauthorised).
+    """
     flash("Unauthorised! Please login before trying to vote in an election.")
     return redirect(url_for('view'))
 
 @main.errorhandler(404)
 def not_found(error):
+    """
+    Callback for attempting to access endpoints that do not exist (HTTP 404).
+    """
     return render_template("not_found.html", error=error)
 
 @main.errorhandler(413)
 def file_too_large(error):
-    print(error)
+    """
+    Callback for attempting to upload a file that is larger than the defined
+    file size limit.
+    """
     sizeInMib = main.config['MAX_CONTENT_LENGTH'] // (1024**2)
     flash(f"You tried to upload a file that was too large. Please only upload files with size up to {sizeInMib}MiB.", "error")
     return redirect(url_for("create"))
 
 @main.route("/")
 def splash():
+    """Landing page."""
     return render_template("splash.html")
 
 @main.route("/about")
 def about():
+    """FAQ and information page."""
     return render_template("faq.html")
 
 @main.route("/view", methods=['GET', 'POST'])
 def view():
+    """
+    Page where users can find elections to vote in or view bulletin boards for.
+    """
     form = ViewElectionForm(request.form)
     election = None
-    if request.method == 'POST':
+    if form.validate_on_submit():
         election = getElectionFromDb(escape(form.election_id.data))
     return render_template("view.html", form=form, election=election)
 
 @main.route("/create", methods=['GET', 'POST'])
 def create():
+    """Election creation page."""
     form = ElectionForm(CombinedMultiDict((request.files, request.form)))
     if form.validate_on_submit():
         request_list = request.form.to_dict()
-        title = form.title.data
-        contact = form.contact.data
+        title = escape(form.title.data)
+        contact = escape(form.contact.data)
         delim = form.delimiter.data
+        
         # validate the dates part of the form and construct datetimes
         time_tup = ElectionForm.validateDates(form)
-        # validate the questions and choices in the form and construct
-        # question dictionary FROM THE REQUEST MULTIDICT
+        
+        # validate the questions and choices in the form and construct the
+        # question dictionary
         questions = ElectionForm.validateQuestions(request_list)
+        
         # validate the uploaded file and construct the new file location
         filepath = ElectionForm.validateFile(form)
         election_id = makeID()
         voters = checkCsv(election_id, filepath, delim)
-        if time_tup is not None \
-           and questions is not None \
-           and filepath is not None \
-           and voters is not None:
+
+        # check that all validation passed
+        if time_tup is not None and questions is not None \
+           and filepath is not None and voters is not None:
             # create election and redirect to confirmation
             start_time, end_time = time_tup
             election = parseElection(election_id, questions, start_time, end_time,
@@ -146,7 +201,7 @@ def create():
     
 @main.route("/confirm-election", methods=["GET", "POST"])
 def confirmElection():
-    # ensure the user has filled out the form properly
+    """Election creation confirmation page."""
     if not 'new_election' in session:
         flash("Election incomplete, ensure that you correctly filled out the election details here.",
               "error")
@@ -165,9 +220,9 @@ def confirmElection():
     election = jsonpickle.decode(session['new_election'])
     filepath = session['filepath']
     voters = jsonpickle.decode(session['voters'])
-    if request.method == 'POST':
-        # if we get a POST with all the checks passed at this point, then insert
-        # into the DB
+
+    # if valid submission then insert into database
+    if form.validate_on_submit():
         inserted = insertElection(election, voters)
         if inserted is None:
             flash("Election was not inserted successfully", "error")
@@ -175,25 +230,26 @@ def confirmElection():
             # delete user file after inserting voters
             os.remove(filepath)
             flash("Election inserted successfully!", "info")
+
+            # clear session
             session.pop('new_election')
             session.pop('filepath')
             session.pop('voters')
-            return redirect(url_for("splash"))
-    
+            return redirect(url_for("splash"))    
     return render_template("confirm_election.html", form=SubmitForm(),
                            election=election, questions=election.questions)
 
 
 @main.route("/login", methods=["GET", "POST"])
 def voteLogin():
-    # use GET request to parse and check the election ID we're trying to login with
+    """Page to log into an election for voting."""
     election_id = escape(request.args.get("election_id", ""))
     if not election_id:
         flash("No election ID given, please pass an election ID and try again.", 'error')
         return redirect(url_for("view"))
 
+    # ensure users only login during an ONGOING election
     status = getElectionStatus(election_id)
-    
     if status is None:
         flash(f"Invalid election ID passed: No election found with that ID.", 'error')
         return redirect(url_for("view"))
@@ -206,27 +262,19 @@ def voteLogin():
         flash(f"Election has closed! Check out its results.", 'error')
         return redirect(url_for("results"), election_id=election_id)
 
-    # if user is already logged in then send to next page
+    # if user is already logged in then send to voting
     if current_user.is_authenticated:
         return redirect(url_for("voting", election_id=election_id,
                                     question_num=current_user.current))
 
-    # check login details on login
     form = LoginForm(request.form)
     if form.validate_on_submit():
+        # validate login data
         voter = getVoterFromDb(escape(form.email.data), escape(form.code.data),
                                     election_id)
         if voter is not None:
-            # log user in after authentication
+            # log user into session and send to voting page
             login_user(voter)
-
-            # protect against open redirects
-            
-            #next_endpoint = request.args.get('next')
-            #if not isSafeUrl(next_endpoint):
-            #    return abort(400)
-
-            # if the user has finished voting, send to results page
             return redirect(url_for("voting", election_id=election_id,
                                     question_num=current_user.current))
         else:
@@ -235,9 +283,10 @@ def voteLogin():
     return render_template("login.html", form=form, election_id=election_id,
                            contact=contact)
 
-@main.route("/<string:election_id>/vote/<int:question_num>", methods=["GET", "POST"])
+@main.route("/vote/<string:election_id>/<int:question_num>", methods=["GET", "POST"])
 @login_required
 def voting(election_id: str, question_num: int):
+    """Page to vote for some question in an election."""
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
 
@@ -254,7 +303,7 @@ def voting(election_id: str, question_num: int):
         flash(f"Election has closed! Check out its results.", 'error')
         return redirect(url_for("results"), election_id=election_id)
     
-    # make a Form from the Question object
+    # make a Form from the Question object (and request if POST)
     question = getQuestionByNum(clean_id, clean_num)
     if question is None:
         flash('Something went wrong when trying to fetch that question', 'error')
@@ -290,9 +339,13 @@ def voting(election_id: str, question_num: int):
     return render_template("voting.html", form=form, election_id=clean_id,
                            errors=form.errors, contact=contact)
 
-@main.route("/<string:election_id>/vote/<int:question_num>/audit", methods=["GET", "POST"])
+@main.route("/audit/<string:election_id>/<int:question_num>", methods=["GET", "POST"])
 @login_required
 def auditOrConfirm(election_id: str, question_num: int):
+    """
+    Page where users are shown their stage one ballot and can choose to
+    either audit or confirm it.
+    """
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
 
@@ -304,14 +357,16 @@ def auditOrConfirm(election_id: str, question_num: int):
     if status == "CLOSED":
         flash(f"Election has closed! Check out its results.", 'error')
         return redirect(url_for("results"), election_id=election_id)
-    
+
+    # check session contains the expected data
     if 'public_key' not in session or 'sign_1' not in session \
        or 'hash_1' not in session or 'receipt' not in session:
         flash('Bad session data, please try again.', 'error')
         clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
-    
+
+    # verify session data signature
     public_key = bytestrToVKey(session['public_key'])
     if not verifyData(session['hash_1'], public_key, session['sign_1']):
         flash('Could not verify vote receipt, please try again.', 'error')
@@ -322,13 +377,12 @@ def auditOrConfirm(election_id: str, question_num: int):
     form = AuditForm(request.form)
     if form.validate_on_submit():
         private = getPrivateKey()
+        # if AUDIT button is clicked, do auditing operations
         if form.audit.data and not form.confirm.data:
-            # audit the ballot and go back to question
             receipt = auditBallot(session['receipt'])
             if receipt is None:
                 flash('Could not fetch ballot data, try again.', 'error')
             else:
-                # sign AUDITED ballot
                 json_str = json.dumps(receipt)
                 hex_json = stringToHex(json_str)
                 session['hash_2'] = hashString(json_str)
@@ -349,16 +403,16 @@ def auditOrConfirm(election_id: str, question_num: int):
                 session['choices'] = choices[:-2]
                 return redirect(url_for('showBallot', election_id=clean_id,
                                         question_num=clean_num))
-            
+        # if CONFIRM button is clicked, do confirmation operations   
         elif not form.audit.data and form.confirm.data:
-            # confirm selection and go to next question
             receipt = confirmBallot(session['receipt'])
             incrementTallies(receipt['ballot_id'])
             deleteSecrets(receipt['ballot_id'])
+            
             # increment the question counter for the voter
             current_user.nextQuestion()
             nextQuestion(current_user.voter_id, current_user.current)
-            # sign CONFIRMED ballot
+            
             json_str = json.dumps(receipt)
             hex_json = stringToHex(json_str)
             session['hash_2'] = hashString(json_str)
@@ -383,11 +437,14 @@ def auditOrConfirm(election_id: str, question_num: int):
     return render_template("audit.html", form=form, election_id=clean_id,
                            pretty_hash=pretty_hash, contact=contact)
 
-@main.route("/<string:election_id>/vote/<int:question_num>/ballot", methods=["GET", "POST"])
+@main.route("/ballot/<string:election_id>/<int:question_num>", methods=["GET", "POST"])
 @login_required
 def showBallot(election_id: str, question_num: int):
+    """Page where the user is shown their final stage two ballot."""
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
+
+    # check session data exists
     if 'public_key' not in session or 'sign_2' not in session \
        or 'hash_1' not in session or 'receipt' not in session \
        or 'hash_2' not in session:
@@ -395,13 +452,15 @@ def showBallot(election_id: str, question_num: int):
         clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
-    
+
+    # verify session data
     public_key = bytestrToVKey(session['public_key'])
     if not verifyData(session['hash_2'], public_key, session['sign_2']):
         flash('Could not verify vote receipt, please try again.', 'error')
         clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
+    
     audited = session['receipt']['state'] == 'AUDITED'
     form = SubmitForm(request.form)
     if form.validate_on_submit():
@@ -410,7 +469,7 @@ def showBallot(election_id: str, question_num: int):
         session.pop('sign_2')
         session.pop('hash_2')
         session.pop('public_key')
-        # only audited ballots have this, so need extra arg
+        # only audited ballots have this, so provide the second argument
         session.pop('choices', None)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
@@ -419,8 +478,9 @@ def showBallot(election_id: str, question_num: int):
     return render_template("ballot.html", election_id=clean_id, form=form,
                            audited=audited, pretty_hash=pretty_hash, contact=contact)
 
-@main.route("/<string:election_id>/results", methods=["GET"])
+@main.route("/results/<string:election_id>", methods=["GET"])
 def results(election_id: str):
+    """Bulletin board page."""
     clean_id = escape(election_id)
     election = getElectionFromDb(clean_id)
     if election is None:
@@ -431,17 +491,19 @@ def results(election_id: str):
         flash("The election has not started yet, come back after {election.str_start_time}", "error")
         return redirect(url_for("view"))
 
+    # only get the results if the election has finished
     if election.status.name == "CLOSED":
         totals = electionTotals(election)
     else:
         totals = None
-    
+
+    # fetch all the ballots to display
     receipts = getBallots(election)
     
     return render_template("bulletin.html", receipt_list=receipts, contact=election.contact,
                            trunc=truncHash, election=election, totals=totals)
 
-@main.route("/<string:election_id>/download_json", methods=["GET"])
+@main.route("/download_json/<string:election_id>", methods=["GET"])
 def download(election_id: str):
     clean_id = escape(election_id)
     election = getElectionFromDb(clean_id)
