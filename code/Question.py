@@ -5,7 +5,8 @@ from ecdsa import NIST256p
 from ecdsa.ellipticcurve import Point
 
 class Question:
-    """This class is responsible for storing the data needed to display a
+    """
+This class is responsible for storing the data needed to display a
 question in an election with its query and choices. It assumes that well-
 formed input has been passed to the constructor so all data sanitisation
 should occur before an instance is created.
@@ -21,17 +22,13 @@ Attributes:
 - num_choices -- the number of choices that are available for this Question.
 - generator   -- GeneratorPair object used for cryptography on this Question.
 - is_multi    -- whether this Question allows for multiple choices or not.
-
-Methods:
-
-Overridden:
-- __str__(self) -- returns self.query joined with each Choice on a newline
 """
     
     # Constructor
-    def __init__(self, question_id: str, query: str, max_answers: int,
-                 choices: List[str], gen_2: Point):
+    def __init__(self, question_id: str, election_id: str, query: str,
+                 max_answers: int, choices: List[str], gen_2: Point):
         self._question_id = question_id
+        self._election_id = election_id
         self._query = query
         self._max_answers = max_answers
         self._choices = choices
@@ -43,6 +40,10 @@ Overridden:
     @property
     def question_id(self) -> str:
         return self._question_id
+
+    @property
+    def election_id (self) -> str:
+        return self._election_id
 
     @property
     def query(self) -> str:
@@ -75,13 +76,6 @@ Overridden:
     @property
     def is_multi(self) -> bool:
         return self.max_answers > 1
-
-    def __str__(self):
-        string = self.query
-        for i in range(len(self.choices)):
-            string += f"\nChoice {i}: {str(self.choices[i])}"
-        return string
-
     
         
     

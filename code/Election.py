@@ -3,49 +3,54 @@ from Question import Question
 from Status import Status, checkStatus
 from datetime import datetime
 
-from base64 import b64encode
-
 class Election():
-    """This class is responsible for containing the general data for a specific
-election: its questions, the start/end times and ???
+    """
+This class is responsible for containing the data for an election.
 
 Attributes:
-- election_id   -- random, unique identifier for this election
-- title         -- the title for the election
-- start_time    -- the date/time that the election opens for voting
-- end_time      -- the date/time that the election closes for voting
-- contact       -- the contact email of the election organiser
-- questions     -- list of questions for this election
-- sql_questions -- a list of tuples that are formatted to be used with Cursor.executemany()
-                   when inserting this object into the database.
-- status        -- an integer value representing the state of the election.
-                   Status.PENDING if now < self.start_time
-                   Status.ONGOING if now >= self.start_time AND now < self.end_time
-                   Status.CLOSED  if now >= self.end_time
-
-Methods:
+- election_id    -- random, unique identifier for this election
+- title          -- the title for the election
+- start_time     -- the date/time that the election opens for voting
+- end_time       -- the date/time that the election closes for voting
+- contact        -- the contact information of the election organiser
+- questions      -- list of questions for this election
+- num_questions  -- number of questions in the elections
+- str_start_time -- long-form, user-friendly form of the election start time
+- str_start_time -- long-form, user-friendly form of the election end time
+- sql_questions  -- a list of tuples that are formatted to be used with
+                    Cursor.executemany() when inserting this object into the
+                    database.
+- status         -- an integer value representing the state of the election.
+                    Status.PENDING if now < self.start_time
+                    Status.ONGOING if now >= self.start_time
+                                    AND now < self.end_time
+                    Status.CLOSED  if now >= self.end_time
 """
     
-    def makeQuestionTuples(qList) \
-        -> List[Tuple[str, str, int, int, str, str, str, str]]:
-        """Returns a list of SQL friendly tuples for all the Questions in the
-Election, i.e: (question_id, query, question_num, num_answers, str(bytes(g2)))
-"""
+    def makeQuestionTuples(qList: List[Question], election_id: str) \
+        -> List[Tuple[str, str, str, int, int, str, str, str, str]]:
+        """
+        Returns a list of SQL friendly tuples for all the Questions in the
+        Election for easier insertion into the database.
+        """
         from helpers import pointToBytestr
         questionTups = []
         for i in range(len(qList)):
-            questionTups.append((qList[i].question_id, qList[i].query, i+1,
-                                 qList[i].max_answers,
-                                 pointToBytestr(qList[i].gen_2)
+            question = qList[i]
+            questionTups.append((question.question_id, question.election_id,
+                                 question.query, i+1, question.max_answers,
+                                 pointToBytestr(question.gen_2)
                                  ))
         return questionTups
 
     def longTime(time_obj: datetime) -> str:
-        """Returns the given datetime object as a long-form, user-friendly string.
-E.g: Wednesday 30 March 2022 10:45:30AM"""
+        """
+        Returns the given datetime object as a long-form, user-friendly string.
+        E.g: Wednesday 30 March 2022 10:45:30AM
+        """
         return time_obj.strftime("%A %d %B %Y %I:%M:%S%p")
 
-    def __init__(self, election_id: str, title: str,questions: List[Question],
+    def __init__(self, election_id: str, title: str, questions: List[Question],
                  start_time: datetime, end_time: datetime, contact: str):
         self._election_id = election_id
         self._title = title
@@ -53,12 +58,12 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
         self._start_time = start_time
         self._end_time = end_time
         self._contact = contact
-        self._sql_questions = Election.makeQuestionTuples(questions)
+        self._sql_questions = Election.makeQuestionTuples(questions, election_id)
 
     def getQuestion(self, question_id: str) -> Optional[Question]:
         """
-        Given a question ID, returns the appropriate question object,
-        or None.
+        Given a question ID, returns the appropriate question object or None if
+        a question with that ID is not found in the object.
         """
         for question in self.questions:
             if question.question_id == question_id:
@@ -108,16 +113,3 @@ E.g: Wednesday 30 March 2022 10:45:30AM"""
     @property
     def status(self) -> Status:
         return checkStatus(self.start_time, self.end_time)
-
-    def __str__(self):
-        string = f"""
-Election ID: {self.election_id}
-Title: {self.title}
-Contact: {self.contact}
-Starts: {self.str_start_time}
-Ends: {self.str_end_time}
-Status: {self.status.name}
-"""
-        for i in range(len(self.questions)):
-            string += f"\nQuestion {i}: {str(self.questions[i])}\n"
-        return string
