@@ -4,7 +4,6 @@ DROP TABLE IF EXISTS questions;
 DROP TABLE IF EXISTS ballots;
 DROP TABLE IF EXISTS receipts;
 DROP TABLE IF EXISTS choices;
-DROP TABLE IF EXISTS election_questions;
 DROP TABLE IF EXISTS keys;
 
 CREATE TABLE keys (
@@ -35,6 +34,7 @@ CREATE TABLE elections (
 
 CREATE TABLE questions (
   question_id VARCHAR PRIMARY KEY,
+  election_id VARCHAR NOT NULL,
   question_num INT NOT NULL,
   text VARCHAR NOT NULL,
   num_answers INT NOT NULL CONSTRAINT pos_answers CHECK (num_answers > 0),
@@ -78,15 +78,7 @@ CREATE TABLE choices (
   index_num INT NOT NULL,
   text VARCHAR NOT NULL,
   tally_total BIGINT CONSTRAINT pos_tally CHECK (tally_total >= 0),
-  sum_total BIGINT CONSTRAINT pos_sum CHECK (sum_total >= 0),
+  sum_total VARCHAR,
   PRIMARY KEY (question_id, index_num),
-  FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE
-);
-
-CREATE TABLE election_questions (
-  election_id VARCHAR NOT NULL,
-  question_id VARCHAR NOT NULL,
-  PRIMARY KEY (election_id, question_id),
-  FOREIGN KEY (election_id) REFERENCES elections(election_id) ON DELETE CASCADE,
   FOREIGN KEY (question_id) REFERENCES questions(question_id) ON DELETE CASCADE
 );
