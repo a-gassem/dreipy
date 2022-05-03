@@ -3,30 +3,6 @@
 {% block body %}
 <h1>Vote</h1>
 
-{% if errors %}
-    <h3>Errors:</h3>
-    <ul class="errors">
-    {% for field, msg_list in errors.items() %}
-        {% for msg in msg_list %}
-            <li>{{ msg }}</li>
-        {% endfor %}
-    {% endfor %}
-    </ul>
-{% endif %}
-
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        {% if not errors %}
-            <h3>Errors:</h3>
-        {% endif %}
-        <ul class="errors">
-        {% for msg in messages %}
-            <li>{{ msg }}</li>
-        {% endfor %}
-        </ul>
-    {% endif %}
-{% endwith %}
-
 <h3>If there is an issue, please contact: {{ contact }}</h3>
 
 <form action="" method="post">

@@ -22,19 +22,21 @@
                 
                 <div class="tab-panel">
                     <div class="tab-content">
-                        {% if totals %}
+                        {% if totals and graph_dict %}
                             <div class="results">
                                 <h3>Question Results:</h3>
-                                <ul>
+                                <ol>
                                 {% for d in totals[question.question_id] %}
-                                    <li>Choice: {{ d['choice'] }} -- Total votes: {{ d['tally'] }}</li>
+                                    <li>{{ d['choice'] }} -- Total votes: {{ d['tally'] }}</li>
                                 {% endfor %}
-                                </ul>
+                                </ol>
+                            </div>
+                            <div class="graph">
+                                <img src="{{ graph_dict[question.question_id] }}" alt="Graph of question ID {{ question.question_id }}" height="auto" width="100%"></img>
                             </div>
                         {% endif %}
                         <div class="bulletin">
                             <h1>BALLOTS:</h1>
-                            <h2>Question ID: {{ question.question_id }}</h2>
                             <table>
                                 <tr>
                                     <th>Ballot ID</th>

@@ -1,23 +1,77 @@
 {% extends "base.html" %}
 {% block title %}Index{% endblock %}
 {% block body %}
+
 <h1>Welcome to DRE-ipy!</h1>
 
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        <h3>Messages:</h3>
-        <ul class="errors">
-        {% for msg in messages %}
-            <li>{{ msg }}</li>
-        {% endfor %}
-        </ul>
-    {% endif %}
-{% endwith %}
+<p>DRE-ipy is a free and open-source implementation of the Direct Recording Electronic with Integrity and Enforced Privacy (DRE-ip) protocol written using Python 3 and Flask. It has added various features on top of previous implementations of DRE-ip in order to extend its functionality, including:</p>
 
-<h3>Vote in (or view) an existing election:</h3>
-<div class="btn"><a href="{{ url_for('view') }}">Find an Election</a></div>
+<ol>
+    <li>Allowing for multiple-choice questions.</li>
+    <li>Letting elections have more than one question.</li>
+    <li>Providing basic data visualisation for the results after the election.</li>
+</ol>
 
-<h3>Create a new election:</h3>
-<div class="btn"><a href="{{ url_for('create') }}">Create</a></div>
+<p>For questions about how DRE-ip works and the security of DRE-ipy, please look at the Frequently Asked Question section below. Otherwise, you may choose to search for an election or create a new election:</p>
+
+<a href="{{ url_for('view') }}"><div class="btn">Find an Election</div></a>
+
+<a href="{{ url_for('create') }}"><div class="btn">Create a new election</div></a>
+
+<h2>Frequently Asked Questions:</h2>
+
+<ol>
+    <li><a href="#what-is-dre-ip">What is DRE-ip?</a></li>
+    <li><a href="#how-does-an-election-work">How do I vote in an election?</a></li>
+    <li><a href="#how-can-i-know-that-my-vote-was-cast-as-i-intended">How can I know that my vote was cast as I intended? How can I know that my vote was recorded as cast?</a></li>
+    <li><a href="#what-do-i-do-if-my-vote-was-recorded-wrong">What do I do if my vote was recorded wrong?</a></li>
+    <li><a href="#how-can-i-know-that-the-tally-is-correct">How can I know that the tally is correct?</a></li>
+    <li><a href="#how-can-i-report-a-bug">How can I report a bug?</a></li>
+</ol>
+
+<div id="what-is-dre-ip">
+    <h3>What is DRE-ip?</h3>
+    
+    <p><a href="https://eprints.whiterose.ac.uk/117997/1/DRE_ip.pdf">DRE-ip</a> was designed by Prof. Feng Hao and Siamak Shahandashti in 2016. It is an end-to-end (E2E) verifiable protocol that does not rely on tallying authorities to calculate the final sum of votes for each candidate. This is because anyone (whether a participant in the election or not) can check that the final sum is correct or not.and do if any votes have been tampered with, lost, or counted up incorrectly they will be known to the public with no need to trust DRE-ipy.</p>
+</div>
+
+<div id="how-do-i-vote-in-an-election">
+    <h3>How do I vote in an election?</h3>
+    
+    <p>To vote in an election, the election organiser will first need to distribute you the election ID, the election time, your username and passcode beforehand through some secure means. Keep these safe until the day of the election.</p>
+    
+    <p>On the day of the election, use the election ID to search for the election; once the election has started and you attempt to vote, you will be asked to log in using the username and passcode given. When you log in, you will go to the first question in the election that you have not yet filled out.</p>
+</div>
+
+<div id="how-can-i-know-that-my-vote-was-cast-as-i-intended">
+    <h3>How can I know that my vote was cast as I intended? How can I know that my vote was recorded as cast?</h3>
+    
+    <p>When you submit your vote, you will receive a receipt with a ballot ID. The receipt is a commitment as DRE-ipy does not know whether you will choose to go on to audit or confirm your vote in the next step.</p>
+    
+    <p>If you choose to audit your ballot, DRE-ipy will reveal your choice(s) which you can verify matches your selection(s) -- the receipt and choice(s) will be added to the bulletin board under the ballot ID, verifying that your cast vote has been recorded in the same way. For all audited votes, the vote will be canceled and you will be able to vote again on the same question. You may repeat this as many times as you would like until you are satisfied that DRE-ipy casts your vote as intended, and records your vote as cast.</p>
+    
+    <p>If you choose to confirm your vote, your choices will be used to add onto the tally for your selected options, and again your receipt will be added to the bulletin board under the appropriate ballot ID -- except the choices are securely deleted.</p>
+</div>
+
+<div id="what-do-i-do-if-my-vote-was-recorded-wrong">
+    <h3>What do I do if my vote was recorded wrong?</h3>
+    
+    <p>In the event that in the above steps your revealed choices were incorrect, or the receipt does not appear or match the bulletin board, you must alert the election organiser immediately so that they can investigate why/how the election has been tampered with. Their contact details are provided on the voting pages.</p>
+</div>
+
+<div id="how-can-i-know-that-the-tally-is-correct">
+    <h3>How can I know that the tally is correct?</h3>
+    
+    <p>Once the election is finished and the results are shown for each question and candidate, the public is free to verify the result. This is done by downloading all the data from the election in a JSON file and checking all of the tests and proofs outlined in the DRE-ip protocol hold. If DRE-ipy tampers with any of the data then anyone who downloads the election data will be able to spot this tampering. DRE-ipy has its own verification tool that anyone can use, but anyone may also write their own verification tool if they wish.</p>
+</div>
+
+<div id="how-can-i-report-a-bug">
+    <h3>How can I report a bug?</h3>
+    <p>As with any software, DRE-ipy will have bugs that have gone undetected. These could be small spelling mistakes or formatting errors, or potentially larger vulnerabilities that arise out of this specific implementation of DRE-ip.</p>
+    
+    <p>If you are a developer that wishes to fix any bugs that you encounter yourself, then you are free to make a pull request or fork from the GitHub <a href="https://github.com/a-gassem/dreipy">repository</a>. This software is free (and open-source) and always will be, in the interest of putting it through the utmost scrutiny by the public.</p>
+    
+    <p>If you are a voter, then open an issue on the GitHub page <a href="https://github.com/a-gassem/dreipy/issues">here</a> describing how you found the bug, what the bug is (and if possible how to recreate it).</p>
+</div>
 
 {% endblock %}

@@ -3,6 +3,7 @@
 {% block script %}<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 <script src="{{ url_for('static', filename='form.js') }}" async></script>{% endblock %}
 {% block body %}
+
 <h1>Create an Election</h1>
 
 <p>To create an election there are a few things that you need to do:</p>
@@ -23,27 +24,14 @@
     </ul>
 {% endif %}
 
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        {% if not errors %}
-            <h3>Errors:</h3>
-        {% endif %}
-        <ul class="errors">
-        {% for msg in messages %}
-            <li>{{ msg }}</li>
-        {% endfor %}
-        </ul>
-    {% endif %}
-{% endwith %}
-
-<form enctype="multipart/form-data" action="" method="post">
+<form id="create-form" enctype="multipart/form-data" action="" method="post">
     {{ form.csrf_token }}
     <h3>When is the election happening?</h3>
-    <div class="row-fluid date">
+    <div class="date">
         {{ form.start_year.label() }}
         {{ form.start_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.start_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.start_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.start_hour(maxlength="2", class_="double", placeholder="HH") }}:00:00
     </div>
-    <div class="row-fluid date">
+    <div class="date">
         {{ form.end_year.label() }}
         {{ form.end_year(maxlength="4", class_="quad", placeholder="YYYY") }}-{{ form.end_month(maxlength="2", class_="double", placeholder="MM") }}-{{ form.end_day(maxlength="2", class_="double", placeholder="DD") }} {{ form.end_hour(maxlength="2", class_="double", placeholder="HH") }}:00:00
     </div>
@@ -55,6 +43,10 @@
         <div id="1" class="question-box">
             {{ form.query_1.label() }}
             {{ form.query_1(placeholder="Select your desired candidate.") }}
+            <div class="answer-box">
+                {{ form.maxanswers_1.label() }}
+                {{ form.maxanswers_1() }}
+            </div>
             <div class="choice-box">
                 {{ form.choice_1_1.label() }}
                 {{ form.choice_1_1(placeholder="Candidate Name") }}
@@ -63,25 +55,25 @@
                 {{ form.choice_1_2.label() }}
                 {{ form.choice_1_2(placeholder="Candidate Name") }}
             </div>
-            <button class="btn disabled delete-choice" type="button">Remove Choice</button>
-            <button class="btn new-choice" type="button">Add Choice</button>
-            {{ form.maxanswers_1.label() }}
-            {{ form.maxanswers_1() }}
+            <div class="btn disabled delete-choice">Remove Choice</div>
+            <div class="btn new-choice">Add Choice</div>
         </div>
     </div>
-    <button id="delete-question" class="btn disabled" type="button">Delete Question</button>
-    <button id="new-question" class="btn" type="button">Add Question</button>
+    <div id="delete-question" class="btn disabled">Delete Question</div>
+    <div id="new-question" class="btn">Add Question</div>
     
     <h3>Who can vote in it?</h3>
     <div id="file-upload">
         {{ form.file.label() }}
         {{ form.file() }}
+    </div>
+    <div class="delimiter">
         {{ form.delimiter.label() }}
         {{ form.delimiter(maxlength="1", class_="double", placeholder=',') }}
     </div>
     
     <h3>Extra contact details:</h3>
-    <div>
+    <div class="contact-box">
         {{ form.contact.label() }}
         {{ form.contact() }}
     </div>

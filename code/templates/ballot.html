@@ -5,9 +5,9 @@
 {% block body %}
 
 {% if audited %}
-<h2>Your vote has been AUDITED. Your choice has been shown below, please verify that it was indeed the choice(s) that you made. Since you audited this ballot, you will be sent back to the question you just voted for, where you can submit another vote and either audit it again, or confirm it and move on with the election.</h2>
+<p>Your vote has been AUDITED. Your choice has been shown below, please verify that it was indeed the choice(s) that you made. Since you audited this ballot, you will be sent back to the question you just voted for, where you can submit another vote and either audit it again, or confirm it and move on with the election.</p>
 {% else %}
-<h2>Your vote has been CONFIRMED. Your choices were added to the tally for the respective candidate(s), and then the vote secrets were securely deleted. Below is the final receipt for your ballot which you can check on the link below; once you have confirmed that it has been recorded, click the button to get sent to the next question.</h2>
+<p>Your vote has been CONFIRMED. Your choices were added to the tally for the respective candidate(s), and then the vote secrets were securely deleted. Below is the final receipt for your ballot which you can check on the link below; once you have confirmed that it has been recorded, click the button to get sent to the next question.</p>
 {% endif %}
 
 <h3>If there is an issue, please contact: {{ contact }}</h3>
@@ -17,7 +17,6 @@
     <h2>Election ID: {{ election_id }}</h2>
     <h2>Question ID: {{ session['receipt']['question_id'] }}</h2>
     <h2>Ballot ID: {{ session['receipt']['ballot_id'] }}</h2>
-    <h2>Receipt:</h2>
     <h2>{{ pretty_hash }}</h2>
     
     <h1>VOTING STAGE TWO:</h1>
@@ -34,7 +33,7 @@
 
 <form action="" method="post">
     {{ form.csrf_token }}
-    {{ form.submit() }}
+    <div class="btn">{{ form.submit() }}</div>
 </form>
 
 {% endblock %}

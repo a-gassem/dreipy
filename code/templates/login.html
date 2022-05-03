@@ -3,30 +3,25 @@
 {% block body %}
 <h1>Logging into Election ID: {{ election_id }}</h1>
 
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        <h3>Errors:</h3>
-        <ul class="errors">
-        {% for msg in messages %}
-            <li>{{ msg }}</li>
-        {% endfor %}
-        </ul>
-    {% endif %}
-{% endwith %}
-
 <h3>If there is an issue, please contact: {{ contact }}</h3>
 
 <h3>Please enter your details to vote in this election</h3>
 <form action="" method="post">
     {{ form.hidden_tag() }}
     
-    {{ form.email.label() }}
-    {{ form.email() }}
+    <div class="question-box">
+        {{ form.email.label() }}
+        {{ form.email() }}
+    </div>
     
-    {{ form.code.label() }}
-    {{ form.code() }}
+    <div class="question-box">
+        {{ form.code.label() }}
+        {{ form.code() }}
+    </div>
     
-    {{ form.submit() }}
+    <div class="btn">
+        {{ form.submit() }}
+    </div>
 </form>
 
 {% endblock %}

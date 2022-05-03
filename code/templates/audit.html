@@ -3,35 +3,23 @@
 {% block body %}
 <h1>Would you like to AUDIT or CONFIRM your vote?</h1>
 
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        <h3>Errors:</h3>
-        <ul class="errors">
-        {% for msg in messages %}
-            <li>{{ msg }}</li>
-        {% endfor %}
-        </ul>
-    {% endif %}
-{% endwith %}
-
 <p>You can either AUDIT your vote which will cancel your vote and take you back to the question, but showing the choice you made so that you can verify that it was recorded as cast.</p>
 <p>Or, you can CONFIRM your vote, which will submit your vote and update the tally for your chosen candidate and then take you to the next question with a new receipt.</p>
 
 <h3>If there is an issue, please contact: {{ contact }}</h3>
 
-<div class="stage-one">
+<div>
     <h1>VOTING STAGE ONE:</h1>
     <h2>Election ID: {{ election_id }}</h2>
     <h2>Question ID: {{ session['receipt']['question_id'] }}</h2>
     <h2>Ballot ID: {{ session['receipt']['ballot_id'] }}</h2>
-    <h2>Receipt:</h2>
     <h2>{{ pretty_hash }}</h2>
 </div>
 
 <form action="" method="post">
     {{ form.csrf_token }}
-    {{ form.audit() }}
-    {{ form.confirm() }}
+    <div class="btn">{{ form.audit() }}</div>
+    <div class="btn">{{ form.confirm() }}</div>
 </form>
 
 {% endblock %}

@@ -1,17 +1,151 @@
+:root {
+  --main-bg-color: #eeeeee;
+  --error-bg-color: #993333;
+  --nav-bg-color: #333399;
+  --nav-fg-color: #ffffff;
+}
+
+#flashes ul {
+    list-style-type: '-- ';
+}
+
+.error {
+    color: var(--error-bg-color);
+}
+
+.info {
+    color: var(--nav-bg-color);
+}
+
+body {
+    margin: 0px;
+    font-family: system-ui;
+    background-color: var(--main-bg-color);
+}
+
+a {
+    color:inherit;
+}
+
+#navbar {
+    margin: 0px;
+    padding: 25px;
+    background-color: var(--nav-bg-color);
+    color: var(--nav-fg-color);
+    font-size: 20px;
+}
+
+.btn {
+    padding: 5px 8px;
+    display: inline-block;
+    text-decoration: none;
+    color: inherit;
+    background-color: inherit;
+}
+
+#submit {
+	background: none;
+	color: inherit;
+	border: none;
+	padding: 0;
+	font: inherit;
+	cursor: pointer;
+	outline: inherit;
+}
+
+#audit {
+	background: none;
+	color: inherit;
+	border: none;
+	padding: 0;
+	font: inherit;
+	cursor: pointer;
+	outline: inherit;
+}
+
+#confirm {
+	background: none;
+	color: inherit;
+	border: none;
+	padding: 0;
+	font: inherit;
+	cursor: pointer;
+	outline: inherit;
+}
+
+#main {
+    margin: 25px;
+}
+
+#create-form .btn.disabled {
+    background-color: var(--error-bg-color);
+    color: var(--nav-fg-color);
+    border: 1px solid var(--error-bg-color);
+}
+
+#create-form .btn.disabled:hover {
+    background-color: var(--nav-fg-color);
+    color: var(--error-bg-color);
+}
+
+#main .btn {
+    background-color: var(--nav-bg-color);
+    color: var(--nav-fg-color);
+    border: 1px solid var(--nav-bg-color);
+    font-size: 15px;
+}
+
+#main .btn:hover {
+    background-color: var(--nav-fg-color);
+    color: var(--nav-bg-color);
+}
+
+#view_election .btn.disabled {
+    background-color: var(--error-bg-color);
+    color: var(--nav-fg-color);
+    border: 1px solid var(--error-bg-color);
+}
+
+#view_election .btn.disabled:hover {
+    background-color: var(--nav-fg-color);
+    color: var(--error-bg-color);
+}
+
+#view_election {
+    padding: 25px;
+}
+
+#q_multi_choice {
+    list-style-type: none;
+}
+
+#q_single_choice {
+    list-style-type: none;
+}
 
 td {
     text-align: center; 
     vertical-align: middle;
 }
 
-.stage-one {
-    background-color: #993333;
-    color: #ffffff;
+.date {
+    margin: 5px;
 }
 
-.stage-two {
-    background-color: #333399;
-    color: #ffffff;
+.question-box {
+    margin: 10px 0px;
+}
+
+.contact-box {
+    margin: 10px 0px;
+}
+
+.answer-box {
+    margin: 5px 0px;
+}
+
+.choice-box {
+    margin: 5px;
 }
 
 .double {
