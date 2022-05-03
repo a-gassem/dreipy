@@ -1,8 +1,9 @@
-from flask import flash, current_app
+from flask import flash, current_app, url_for
 from gmpy2 import mpz, powmod
 from ecdsa import SigningKey, VerifyingKey, NIST256p
 from ecdsa.ellipticcurve import Point
 from markupsafe import escape
+import matplotlib.pyplot as plt
 import jsonpickle
 import gmpy2
 
@@ -151,17 +152,17 @@ def checkCsv(election_id: str, filepath: str, delimiter: str) \
                 flash("Found a row with a badly-formed date of birth. Please ensure that each date of birth is in the form DD-MM-YYYY.")
                 return None
             # username checks
-            uname = escape(row['uname'])
+            uname = row['uname']
             if uname in unames:
                 flash(f"Found a duplicate username: {uname}. Please ensure that each username is unique in the CSV file.")
                 return None
             unames[uname] = True
             # length checks on other fields - truncate long names rather than
             # reject outright for maximum accessibility
-            fname = escape(row['fname'][:FNAME_MAX_LENGTH])
-            lname = escape(row['lname'][:LNAME_MAX_LENGTH])
+            fname = row['fname'][:FNAME_MAX_LENGTH]
+            lname = row['lname'][:LNAME_MAX_LENGTH]
             name = f"{fname} {lname}".upper()
-            postcode = escape(row['postcode'][:POSTCODE_MAX_LENGTH].upper())
+            postcode = row['postcode'][:POSTCODE_MAX_LENGTH].upper()
             hash = hashString(row['pass'])
             if not row['fname'] or not row['lname'] or not row['postcode']:
                 flash("Empty field found in CSV file. Please make sure that all fields are filled out with the appropriate data.")
@@ -237,7 +238,7 @@ def truncHash(hash_str: str) -> str:
     Given some string digest of a hash, truncate to the first HASH_LENGTH
     characters for ease of comparison for the user.
     """
-    return hash_str.upper()[HASH_LENGTH:]
+    return hash_str.upper()[:HASH_LENGTH]
 
 def firstReceipt(question: Question, election_id: str, voter_id: str,
                  choices: List[str]) -> Optional[dict]:
@@ -321,9 +322,9 @@ def auditBallot(ballot_id: int) -> Optional[dict]:
     if secret_list is None:
         return None
     
-    for i in range(len(secret_list)):
-        secret, voted = secret_list[i]
+    for secret, voted, choice in secret_list:
         new_receipt['choices'].append({
+            'choice': choice,
             'r': secret,
             'voted': bool(voted)})
     updateAuditBallot(ballot_id, audited=True)
@@ -331,20 +332,25 @@ def auditBallot(ballot_id: int) -> Optional[dict]:
 
 def confirmBallot(ballot_id: dict, num_choices: int) -> Optional[dict]:
     """Marks a ballot as 'confirmed' and marks its secrets as DELETED."""
-    from db import updateAuditBallot
+    from db import updateAuditBallot, getBallotData
     new_receipt = {
         "ballot_id": ballot_id,
         "state": "CONFIRMED",
         "choices": []
         }
-    for i in range(num_choices):
+
+    secret_list = getBallotData(ballot_id)
+    if secret_list is None:
+        return None
+    
+    for secret, voted, choice in secret_list:
         new_receipt['choices'].append({
+            'choice': choice,
             'r': "DELETED",
             'voted': "DELETED"})
-        old_receipt['choices'][i]['r'] = "DELETED"
-        old_receipt['choices'][i]['voted'] = "DELETED"
+        
     updateAuditBallot(ballot_id, audited=False)
-    return old_receipt
+    return new_receipt
 
 def electionTotals(election: Election) -> Optional[dict]:
     """
@@ -367,6 +373,35 @@ def electionTotals(election: Election) -> Optional[dict]:
                 "sum": sum
                 })
     return totals
+
+def makeElectionGraph(totals: dict) -> dict:
+    """
+    Given the dictionary of question totals in an election, creates a bar
+    chart to represent them.
+    """
+    graph_dict = {}
+    for question_id, question_dict in totals.items():
+        filename = f'{question_id}.png'
+        new_path = os.path.join(current_app.config["GRAPH_FOLDER"], filename)
+        # if graph does not exist yet then draw and save it
+        if not os.path.exists(new_path):
+            # question_tallies = [tally_1, tally_2, ..., tally_k]
+            question_tallies = list(map(lambda x: x['tally'], question_dict))
+            # question_labels = ['choice_1', 'choice_2', ..., 'choice_k']
+            question_labels = list(map(lambda x: x['choice'], question_dict))
+
+            # label a NEW bar chart for this iteration
+            plt.figure()
+            plt.bar(question_labels, question_tallies)
+            plt.title(f"Results for Question ID: {question_id}")
+            plt.xlabel("Choices")
+            plt.ylabel("Number of votes")
+
+            plt.savefig(new_path)
+        graph_dict[question_id] = url_for('static',
+                                          filename=f'graphs/{question_id}.png')
+    return graph_dict
+        
 
 def makeElectionJson(election: Election) -> Optional[bool]:
     """

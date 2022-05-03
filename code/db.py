@@ -140,8 +140,8 @@ def insertElection(election: Election, voters: List[Voter]) -> Optional[bool]:
                         (voter_id, election_id, pass_hash, full_name, dob,
                         postcode, uname, finished_voting, current_question)
                         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1);""",
-                        (voter.voter_id, election_id, voter.hash, voter.name,
-                         voter.dob, voter.postcode, voter.uname)
+                        (voter.voter_id, election.election_id, voter.hash,
+                         voter.name, voter.dob, voter.postcode, voter.uname)
                         )
         con.commit()
         return True
@@ -382,9 +382,9 @@ def getVoterById(voter_id: str) -> Optional[Voter]:
                           ).fetchone()
         if not row:
             return None
-        return Voter(row['voter_id'], row['election_id'], row['name'],
+        return Voter(row['voter_id'], row['election_id'], row['full_name'],
                      row['postcode'], row['uname'], row['dob'], "",
-                     bool(row['finished']), int(row['q_num']))
+                     bool(row['finished_voting']), int(row['current_question']))
     except Exception as e:
         print(e)
         return None
@@ -560,10 +560,14 @@ def getBallotData(ballot_id: str) -> Optional[List[Tuple]]:
         return None
     try:
         cur = con.cursor()
-        rows = cur.execute("""SELECT DISTINCT random_secret, voted
-                            FROM receipts AS b INNER JOIN choices AS c
-                            ON c.index_num = b.choice_index
-                            WHERE b.ballot_id = ?;""", (int(ballot_id),)
+        rows = cur.execute("""SELECT DISTINCT random_secret, voted, c.text
+                            FROM ballots as b
+                            INNER JOIN receipts AS r
+                                ON b.ballot_id = r.ballot_id
+			    INNER JOIN choices AS c
+				ON c.index_num = r.choice_index
+                            WHERE b.question_id = c.question_id
+                            AND b.ballot_id = ?;""", (int(ballot_id),)
                            ).fetchall()
         if not rows:
             return None
@@ -638,8 +642,12 @@ def incrementTallies(ballot_id: str) -> Optional[bool]:
         for q_id, index, secret, voted, current_tally, current_sum in rows:
             # only increment for choices the user actually voted for
             if bool(voted):
-                new_tally = current_tally + 1
+                new_tally = int(current_tally) + 1
+                # bytes.from_hex() crashes on input = '0' so cast as int
+                if current_sum == '0':
+                    current_sum = int(current_sum)
                 new_sum = hex(hexToMpz(current_sum) + hexToMpz(secret))[2:]
+                
                 cur.execute("""UPDATE choices
                             SET tally_total = ?, sum_total = ?
                             WHERE question_id = ?
@@ -661,7 +669,7 @@ def totalQuestions(election_id: str) -> Optional[int]:
     try:
         cur = con.cursor()
         row = cur.execute("""SELECT COUNT(question_id) AS num_qs
-                            FROM election_questions WHERE election_id = ?;""", (election_id,)
+                            FROM questions WHERE election_id = ?;""", (election_id,)
                           ).fetchone()
         if row is None:
             return None

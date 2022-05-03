@@ -10,9 +10,9 @@ from markupsafe import escape
 from Voter import Voter
 from helpers import (parseTime, mergeTime, makeID, clearSession, firstReceipt,
                      checkCsv, makeFolder, bytestrToVKey, sKeyToBytestr,
-                     auditBallot, prettyReceipt, isSafeUrl, parseElection,
-                     confirmBallot, electionTotals, makeElectionJson, truncHash,
-                     stringToHex)
+                     auditBallot, prettyReceipt, parseElection, truncHash,
+                     confirmBallot, electionTotals, makeElectionJson,
+                     stringToHex, makeElectionGraph)
 from forms import (ElectionForm, SubmitForm, ViewElectionForm, LoginForm,
                    QuestionForm, AuditForm)
 from db import (initApp, insertElection, getElectionFromDb, getVoterFromDb,
@@ -36,11 +36,8 @@ import os
 # file/directory names and paths
 DB_NAME = "dreipy.sqlite"
 UPLOAD_FOLDER = "uploads/"
+GRAPH_FOLDER = "static/graphs/"
 DOWNLOAD_FOLDER = "json/"
-
-dbPath = os.path.join(main.instance_path, DB_NAME)
-uploadPath = os.path.join(main.instance_path, UPLOAD_FOLDER)
-downloadPath = os.path.join(main.instance_path, DOWNLOAD_FOLDER)
 
 # maximum size of the uploaded Voter CSV file (MiB)
 MAX_FILE_SIZE_LIMIT = 5
@@ -55,13 +52,13 @@ SECRET_BYTES = 32
 # for development on localhost
 my_host = f"http://127.0.0.1:5000"
 
-## THINGS TO DO BEFORE DRAFT:
-# TODO: graph of results for candidates;
-# TODO: contact in case of bad verification
-# TODO: CSS so it's  p r e t t y
-
 ## FLASK APP SETUP
 main = Flask(__name__)
+
+dbPath = os.path.join(main.instance_path, DB_NAME)
+uploadPath = os.path.join(main.instance_path, UPLOAD_FOLDER)
+downloadPath = os.path.join(main.instance_path, DOWNLOAD_FOLDER)
+graphPath = os.path.join(os.path.dirname(__file__), GRAPH_FOLDER)
 
 # randomly generate a new secret key
 main.secret_key = token_bytes(SECRET_BYTES)
@@ -70,6 +67,7 @@ main.config.from_mapping(
     DATABASE = dbPath,
     UPLOAD_FOLDER = uploadPath,
     JSON_FOLDER = downloadPath,
+    GRAPH_FOLDER = graphPath,
     MAX_CONTENT_LENGTH = MAX_FILE_SIZE_LIMIT * 1024 * 1024,
     SESSION_COOKIE_SECURE = False,   # we're not using HTTPS yet
     SESSION_COOKIE_HTTPONLY = True,  # cookies cannot be read with JS
@@ -83,6 +81,7 @@ CSRFProtect(main)
 makeFolder(main.instance_path, permissions=750)
 makeFolder(uploadPath, permissions=750)
 makeFolder(downloadPath, permissions=750)
+makeFolder(graphPath, permissions=750)
 
 # start the app and add the login manager
 initApp(main)
@@ -123,7 +122,7 @@ def unauthorised():
     Callback for attempting to access endpoints that require authentication
     when the user is not authenticated (and hence unauthorised).
     """
-    flash("Unauthorised! Please login before trying to vote in an election.")
+    flash("Unauthorised! Please login before trying to vote in an election.", "error")
     return redirect(url_for('view'))
 
 @main.errorhandler(404)
@@ -131,7 +130,7 @@ def not_found(error):
     """
     Callback for attempting to access endpoints that do not exist (HTTP 404).
     """
-    return render_template("not_found.html", error=error)
+    return render_template("not_found.html")
 
 @main.errorhandler(413)
 def file_too_large(error):
@@ -148,11 +147,6 @@ def splash():
     """Landing page."""
     return render_template("splash.html")
 
-@main.route("/about")
-def about():
-    """FAQ and information page."""
-    return render_template("faq.html")
-
 @main.route("/view", methods=['GET', 'POST'])
 def view():
     """
@@ -161,7 +155,7 @@ def view():
     form = ViewElectionForm(request.form)
     election = None
     if form.validate_on_submit():
-        election = getElectionFromDb(escape(form.election_id.data))
+        election = getElectionFromDb(escape(form.election_id.data.upper()))
     return render_template("view.html", form=form, election=election)
 
 @main.route("/create", methods=['GET', 'POST'])
@@ -170,8 +164,8 @@ def create():
     form = ElectionForm(CombinedMultiDict((request.files, request.form)))
     if form.validate_on_submit():
         request_list = request.form.to_dict()
-        title = escape(form.title.data)
-        contact = escape(form.contact.data)
+        title = form.title.data
+        contact = form.contact.data
         delim = form.delimiter.data
         
         # validate the dates part of the form and construct datetimes
@@ -220,6 +214,8 @@ def confirmElection():
     election = jsonpickle.decode(session['new_election'])
     filepath = session['filepath']
     voters = jsonpickle.decode(session['voters'])
+
+    form = SubmitForm(request.form)
 
     # if valid submission then insert into database
     if form.validate_on_submit():
@@ -279,7 +275,7 @@ def voteLogin():
                                     question_num=current_user.current))
         else:
             flash("Your email address and/or election code are incorrect.", 'error')
-    contact = getElectionContact(clean_id)
+    contact = getElectionContact(election_id)
     return render_template("login.html", form=form, election_id=election_id,
                            contact=contact)
 
@@ -290,18 +286,36 @@ def voting(election_id: str, question_num: int):
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
 
+    # make sure that this user is for the correct election!
+    if current_user.election_id != clean_id:
+        flash("Wrong election. Please log into the correct election before trying to vote!", "error")
+        return redirect(url_for("voting", election_id=clean_id,
+                                    question_num=current_user.current))
+    
     # for users that have finished voting, send them to the results page
     if current_user.voted:
+        flash("You've already voted! Look at the election bulletin board below", "info")
         return redirect(url_for("results", election_id=clean_id))
 
-    status = getElectionStatus(election_id)
+    # make sure that the question number in the request matches the backend
+    if current_user.current != clean_num:
+        flash("Redirected to the correct question number.", "info")
+        return redirect(url_for("voting", election_id=clean_id,
+                                    question_num=current_user.current))
+
+    # sanity check on the election status
+    status = getElectionStatus(clean_id)
+    if status is None:
+        flash("Bad election ID passed, please try again!", "error")
+        return redirect(url_for("view"))
+    
     if status == "PENDING":
-        flash(f"Election has not started yet!", 'error')
+        flash("That election has not started yet!", 'error')
         return redirect(url_for("view"))
 
     if status == "CLOSED":
-        flash(f"Election has closed! Check out its results.", 'error')
-        return redirect(url_for("results"), election_id=election_id)
+        flash("That election has closed! Check out its results below.", 'error')
+        return redirect(url_for("results"), election_id=clean_id)
     
     # make a Form from the Question object (and request if POST)
     question = getQuestionByNum(clean_id, clean_num)
@@ -321,12 +335,10 @@ def voting(election_id: str, question_num: int):
             # sign the SHA-256 hash of the receipt dumped as a JSON string,
             # and add to session with the public key so we can verify it on
             # the next page
-            private_key = getPrivateKey()
             json_str = json.dumps(receipt)
             hex_json = stringToHex(json_str)
             session['hash_1'] = hashString(json_str)
-            session['sign_1'] = signData(session['hash_1'], private_key)
-            session['public_key'] = sKeyToBytestr(private_key.verifying_key)
+            session['sign_1'] = signData(session['hash_1'], getPrivateKey())
             session['receipt'] = receipt  
             
             if updateVoteReceipt(session['sign_1'], session['hash_1'], receipt['ballot_id'],
@@ -349,25 +361,40 @@ def auditOrConfirm(election_id: str, question_num: int):
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
 
-    status = getElectionStatus(election_id)
-    if status == "PENDING":
-        flash(f"Election has not started yet!", 'error')
+    # election status and user checks
+    if current_user.election_id != clean_id:
+        flash("Wrong election. Please log into the correct election before trying to vote!", "error")
+        return redirect(url_for("voting", election_id=clean_id,
+                                    question_num=current_user.current))
+    if current_user.voted:
+        flash("You've already voted! Look at the election bulletin board below", "info")
+        return redirect(url_for("results", election_id=clean_id))
+    if current_user.current != clean_num:
+        flash("Redirected to the correct question number.", "info")
+        return redirect(url_for("voting", election_id=clean_id,
+                                    question_num=current_user.current))
+    
+    status = getElectionStatus(clean_id)
+    if status is None:
+        flash("Bad election ID passed, please try again!", "error")
         return redirect(url_for("view"))
-
+    if status == "PENDING":
+        flash("That election has not started yet!", 'error')
+        return redirect(url_for("view"))
     if status == "CLOSED":
-        flash(f"Election has closed! Check out its results.", 'error')
-        return redirect(url_for("results"), election_id=election_id)
+        flash("That election has closed! Check out its results below.", 'error')
+        return redirect(url_for("results"), election_id=clean_id)
 
     # check session contains the expected data
-    if 'public_key' not in session or 'sign_1' not in session \
-       or 'hash_1' not in session or 'receipt' not in session:
+    if 'sign_1' not in session or 'hash_1' not in session \
+        or 'receipt' not in session:
         flash('Bad session data, please try again.', 'error')
         clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
 
     # verify session data signature
-    public_key = bytestrToVKey(session['public_key'])
+    public_key = getPrivateKey().verifying_key
     if not verifyData(session['hash_1'], public_key, session['sign_1']):
         flash('Could not verify vote receipt, please try again.', 'error')
         clearSession(session)
@@ -376,17 +403,17 @@ def auditOrConfirm(election_id: str, question_num: int):
     
     form = AuditForm(request.form)
     if form.validate_on_submit():
-        private = getPrivateKey()
+        ballot_id = session['receipt']['ballot_id']
         # if AUDIT button is clicked, do auditing operations
         if form.audit.data and not form.confirm.data:
-            receipt = auditBallot(session['receipt'])
+            receipt = auditBallot(ballot_id)
             if receipt is None:
                 flash('Could not fetch ballot data, try again.', 'error')
             else:
                 json_str = json.dumps(receipt)
                 hex_json = stringToHex(json_str)
                 session['hash_2'] = hashString(json_str)
-                session['receipt'] = receipt
+                session['receipt_2'] = receipt
                 session['sign_2'] = signData(session['hash_2'], getPrivateKey())
                 if updateVoteReceipt(session['sign_2'], session['hash_2'], receipt['ballot_id'],
                                      hex_json, first_stage=False) \
@@ -405,9 +432,9 @@ def auditOrConfirm(election_id: str, question_num: int):
                                         question_num=clean_num))
         # if CONFIRM button is clicked, do confirmation operations   
         elif not form.audit.data and form.confirm.data:
-            receipt = confirmBallot(session['receipt'])
-            incrementTallies(receipt['ballot_id'])
-            deleteSecrets(receipt['ballot_id'])
+            receipt = confirmBallot(ballot_id, len(session['receipt']['choices']))
+            incrementTallies(ballot_id)
+            deleteSecrets(ballot_id)
             
             # increment the question counter for the voter
             current_user.nextQuestion()
@@ -417,7 +444,7 @@ def auditOrConfirm(election_id: str, question_num: int):
             hex_json = stringToHex(json_str)
             session['hash_2'] = hashString(json_str)
             session['sign_2'] = signData(session['hash_2'], getPrivateKey())
-            session['receipt'] = receipt
+            session['receipt_2'] = receipt
             if updateVoteReceipt(session['sign_2'], session['hash_2'], receipt['ballot_id'],
                                  hex_json, first_stage=False) \
                                  is None:
@@ -426,6 +453,7 @@ def auditOrConfirm(election_id: str, question_num: int):
                                         question_num=clean_num))
             # check if all questions have now been completed
             if current_user.current > totalQuestions(clean_id):
+                current_user.completeVoting()
                 completeVoting(current_user.voter_id)
             session.pop('sign_1')
             return redirect(url_for('showBallot', election_id=clean_id,
@@ -444,31 +472,53 @@ def showBallot(election_id: str, question_num: int):
     clean_id = escape(election_id)
     clean_num = int(escape(question_num))
 
+    # election status and user checks
+    if current_user.election_id != clean_id:
+        flash("Wrong election. Please log into the correct election before trying to vote!", "error")
+        return redirect(url_for("voting", election_id=clean_id,
+                                    question_num=current_user.current))
+    if current_user.current != clean_num:
+        flash("Redirected to the correct question number.", "info")
+        return redirect(url_for("voting", election_id=clean_id,
+                                    question_num=current_user.current))
+    
+    status = getElectionStatus(clean_id)
+    if status is None:
+        flash("Bad election ID passed, please try again!", "error")
+        return redirect(url_for("view"))
+    if status == "PENDING":
+        flash("That election has not started yet!", 'error')
+        return redirect(url_for("view"))
+
+    # note we do not check for CLOSED elections since at this point their
+    # ballot must have been completed before the election has closed and hence
+    # the page should continue to load
+
     # check session data exists
-    if 'public_key' not in session or 'sign_2' not in session \
+    if 'hash_2' not in session or 'sign_2' not in session \
        or 'hash_1' not in session or 'receipt' not in session \
-       or 'hash_2' not in session:
+       or 'receipt_2' not in session:
         flash('Bad session data, please try again.', 'error')
         clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
 
     # verify session data
-    public_key = bytestrToVKey(session['public_key'])
+    public_key = getPrivateKey().verifying_key
     if not verifyData(session['hash_2'], public_key, session['sign_2']):
         flash('Could not verify vote receipt, please try again.', 'error')
         clearSession(session)
         return redirect(url_for('voting', election_id=clean_id,
                                 question_num=clean_num))
     
-    audited = session['receipt']['state'] == 'AUDITED'
+    audited = session['receipt_2']['state'] == 'AUDITED'
     form = SubmitForm(request.form)
     if form.validate_on_submit():
         session.pop('receipt')
+        session.pop('receipt_2')
         session.pop('hash_1')
         session.pop('sign_2')
         session.pop('hash_2')
-        session.pop('public_key')
         # only audited ballots have this, so provide the second argument
         session.pop('choices', None)
         return redirect(url_for('voting', election_id=clean_id,
@@ -494,14 +544,17 @@ def results(election_id: str):
     # only get the results if the election has finished
     if election.status.name == "CLOSED":
         totals = electionTotals(election)
+        graph_dict = makeElectionGraph(totals)
     else:
         totals = None
+        graph_dict = None
 
     # fetch all the ballots to display
     receipts = getBallots(election)
     
     return render_template("bulletin.html", receipt_list=receipts, contact=election.contact,
-                           trunc=truncHash, election=election, totals=totals)
+                           trunc=truncHash, election=election, totals=totals,
+                           graph_dict=graph_dict)
 
 @main.route("/download_json/<string:election_id>", methods=["GET"])
 def download(election_id: str):

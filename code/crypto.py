@@ -76,7 +76,7 @@ def eulerCriterion(num: mpz) -> bool:
 def generatePair(election_string: str) -> Tuple[Point, Point]:
     """Returns a pair of EC points using the NIST256p field (length 256b)."""
     
-    # manually create second generator according to Prof. Feng Hao's algorithm
+    # manually create second generator according to Prof. Hao's algorithm
     count = 0
     while True:
         x = hashElectionString(election_string, count)

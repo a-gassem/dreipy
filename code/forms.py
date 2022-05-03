@@ -110,7 +110,7 @@ class ElectionForm(FlaskForm):
                 # query_X data
                 if q_match:
                     question_num = int(q_match.group(1))
-                    new_query = escape(str(value))
+                    new_query = str(value)
                     if question_num in questions:
                         if 'query' in questions[question_num]:
                             flash(f"Multiple query text entries found for question {question_num}", "error")
@@ -123,7 +123,7 @@ class ElectionForm(FlaskForm):
                 elif c_match:
                     question_num = int(c_match.group(1))
                     choice_num = int(c_match.group(2))
-                    new_choice = escape(str(value))
+                    new_choice = str(value)
                     if question_num in questions:
                         if 'choices' in questions[question_num]:
                             if choice_num in questions[question_num]['choices']:
