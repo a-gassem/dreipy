@@ -32,6 +32,10 @@ Attributes:
         """Increments the question counter for the voter"""
         self._current += 1
 
+    def completeVoting(self) -> None:
+        """Marks the voter as having finished the election"""
+        self._voted = True
+
     # required properties and methods for LoginManager
     def get_id(self) -> str:
         try:
