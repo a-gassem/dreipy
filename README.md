@@ -1,20 +1,20 @@
 # DRE-ipy
-Implementation of DRE-ip in Python
+Implementation of DRE-ip in Python (assuming Python 3.10.0)
 
-# Installation
+# Installation (for Windows, commands should be similar in Linux)
 Step 0: Download the source code 
 
-Step 1: Create a virtual environment for the dependencies here (assuming Python 3.7+)
+Step 1: Create a virtual environment
 
 Windows:
-py -3 -m venv dreipy&
-dreipy\Scripts\activate&
+`py -3 -m venv dreipy`
+`dreipy\Scripts\activate`
 
-Step 2: Install dependencies (Flask, WTForms, jsonpickle, probs some cryptography libraries too)
+Step 2: Install dependencies
 
-pip install -U Flask flask-wtf jsonpickle pyIsEmail&
+`pip install -U Flask flask-wtf flask-login jsonpickle cryptography matplotlib MarkupSafe ecdsa gmpy2`
 
-Step 3: Run the app (note that the venv is called dreipy)
+Step 3: Run the app
 
-set FLASK_APP=main&
-flask run&
+`set FLASK_APP=main`
+`flask run`

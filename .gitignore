@@ -2,6 +2,7 @@ code/dreipy
 code/*.csv
 code/uploads
 code/instance
+code/static/graphs/
 Report
 database_new.png
 __pycache__
