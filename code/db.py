@@ -429,8 +429,8 @@ def getPrivateKey() -> Optional[SigningKey]:
     finally:
         cur.close()
 
-def insertReceipt(ballot_id: int, r: str, R: Point, Z: Point, r_1: str,
-                  r_2: str, c_1: str, c_2: str, index: int, voted: bool) \
+def insertReceipt(ballot_id: int, r: mpz, R: Point, Z: Point, r_1: mpz,
+                  r_2: mpz, c_1: mpz, c_2: mpz, index: int, voted: bool) \
                  -> Optional[bool]:
     """
     Inserts a receipt for a given question choice with its cryptograms and proof.
@@ -444,7 +444,8 @@ def insertReceipt(ballot_id: int, r: str, R: Point, Z: Point, r_1: str,
                     random_receipt, vote_receipt, random_secret, r_1, r_2, c_1,
                     c_2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);""",
                     (ballot_id, voted, index, pointToBytestr(R),
-                     pointToBytestr(Z), r, r_1, r_2, c_1, c_2)
+                     pointToBytestr(Z), str(r), str(r_1), str(r_2), str(c_1),
+                     str(c_2))
                     )
         con.commit()
         return True
@@ -487,7 +488,8 @@ def addNumProofs(ballot_id: str, proof_c: mpz, proof_r: mpz) -> Optional[bool]:
     try:
         cur = con.cursor()
         cur.execute("""UPDATE ballots SET num_r = ?, num_c = ?
-                        WHERE ballot_id = ?;""", (proof_r, proof_c, ballot_id)
+                        WHERE ballot_id = ?;""", (str(proof_r), str(proof_c),
+                                                  ballot_id)
                     )
         con.commit()
         return True
@@ -643,15 +645,13 @@ def incrementTallies(ballot_id: str) -> Optional[bool]:
             # only increment for choices the user actually voted for
             if bool(voted):
                 new_tally = int(current_tally) + 1
-                # bytes.from_hex() crashes on input = '0' so cast as int
-                if current_sum == '0':
-                    current_sum = int(current_sum)
-                new_sum = hex(hexToMpz(current_sum) + hexToMpz(secret))[2:]
+                new_sum = mpz(current_sum) + mpz(secret)
                 
                 cur.execute("""UPDATE choices
                             SET tally_total = ?, sum_total = ?
                             WHERE question_id = ?
-                            AND index_num = ?;""", (new_tally, new_sum, q_id, index)
+                            AND index_num = ?;""", (new_tally, str(new_sum), q_id,
+                                                    index)
                             )
         con.commit()
         return True
@@ -816,9 +816,7 @@ def getJSONBallots(election: Election) -> Optional[dict]:
             flash("Could not get ballots", "error")
             return None
         ballots = []
-        for b_id, q_id, audited, hash_1, sign_1, hash_2, sign_2, json_1, json_2, gen_2 \
-            in rows:
-            audited = bool(audited)
+        for hash_1, sign_1, hash_2, sign_2, json_1, json_2 in rows:
             ballot = {
                     "stage_1": {
                         "hash": hash_1,
@@ -860,10 +858,11 @@ def getChoiceTallies(election: Election) -> Optional[dict]:
             return None
         choices = {question.question_id:{} for question in election.questions}
         for q_id, index, choice, tally, sum in rows:
-            index = str(index)
-            choices[q_id][index]['text'] = choice
-            choices[q_id][index]['s'] = sum
-            choices[q_id][index]['t'] = tally
+            choices[q_id][str(index)] = {
+                'text': choice,
+                's': str(sum),
+                't': str(tally)
+                }
         return choices
     except Exception as e:
         print(e)

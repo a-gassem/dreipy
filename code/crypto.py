@@ -112,14 +112,16 @@ def generateR(g2: Point, r: mpz) -> Point:
 
 def generateZ(r: mpz, v: int) -> Point:
     """Returns a Point p = g1^r * g1^v"""
-    return g1 * (r + v)
+    if v:
+        return g1 * (r + 1)
+    return g1 * r
 
 def generateZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz) \
-    -> Tuple[str, str, str, str]:
+    -> Tuple[mpz, mpz, mpz, mpz]:
     """
     Zero-knowledge proof of knowledge and equality of the following discrete
     logarithms:
-    P_K{r: ((R = g2^r) AND ((Z div g1) = g1^r)) OR ((R = g2^r) AND (Z = g1^r))}
+    P_K{r: ((R = r * g2) AND ((Z div g1) = r * g1)) OR ((R = r * g2) AND (Z = r * g1))}
 
     We are proving that either we didn't vote for this (v = 0) or we did (v = 1)
 
@@ -143,17 +145,16 @@ def generateZKProof(question_id: str, g2: Point, R: Point, Z: Point, r: mpz) \
     
     t_1 = g1 * w
     t_2 = g2 * w
-    t_3 = (g1 * r_2) + (G_3 * c_2)
-    t_4 = (g2 * r_2) + (G_4 * c_2)
+    t_3 = (g3 * r_2) + (G_3 * c_2)
+    t_4 = (g4 * r_2) + (G_4 * c_2)
 
     # calculate proof hash
     c = proofZKHash(question_id, g1, G_1, g2, G_2, g3, G_3, g4, G_4, t_1, t_2,
-                    t_3, t_4)
+                    t_3, t_4) % n
 
-    # calculate remaining secrets and return hashes as hex
-    c_1 = abs(c - c_2)
-    return (hex(c_1)[2:], hex(c_2)[2:], hex(abs(w - (c_1 * r)))[2:],
-            hex(r_2)[2:])
+    c_1 = (c - c_2) % n
+    r_1 = (w - (c_1 * r)) % n
+    return (c_1, c_2, r_1, r_2)
 
 def verifyZKProof(question_id: str, g1: Point, g2: Point, R: Point, Z: Point, 
                   proof_c1: mpz, proof_c2: mpz, proof_r1: mpz, proof_r2: mpz) \
@@ -172,13 +173,15 @@ def verifyZKProof(question_id: str, g1: Point, g2: Point, R: Point, Z: Point,
 
     t_1 = (g1 * proof_r1) + (G_1 * proof_c1)
     t_2 = (g2 * proof_r1) + (G_2 * proof_c1)
-    t_3 = (g1 * proof_r2) + (G_1 * proof_c2)
-    t_4 = (g2 * proof_r2) + (G_2 * proof_c2)
+    t_3 = (g3 * proof_r2) + (G_3 * proof_c2)
+    t_4 = (g4 * proof_r2) + (G_4 * proof_c2)
 
     c_prime = proofZKHash(question_id, g1, G_1, g2, G_2, g3, G_3, g4, G_4, t_1,
-                          t_2, t_3, t_4)
+                          t_2, t_3, t_4) % n
 
-    return (proof_c1 + proof_c2) == c_prime
+    proof_c = (proof_c1 + proof_c2) % n
+
+    return proof_c == c_prime
 
 ## can probs to some kwargs** shenanigans here...
 def proofNumHash(proof_id: str, g1: Point, G_1: Point, g2: Point, G_2: Point,
@@ -214,9 +217,15 @@ def pointSum(point_list: List[Point]) -> Point:
 
     return curr_point
 
-def generateNumProof(question_id: str, g2: Point,  R_list: List[Point],
+def twosComp(num: mpz) -> mpz:
+    """Return the 2's complement of an mpz value."""
+    if num < 0:
+        return (1 << num.bit_length()) + num
+    return num
+
+def generateNumProof(question_id: str, g2: Point, R_list: List[Point],
                      Z_list: List[Point], r_list: List[mpz], num_choices: int) \
-                     -> Tuple[str, str]:
+                     -> Tuple[mpz, mpz]:
     """
     Zero-knowledge proof of knowledge and equality of form:
     P_K{r_sum: ((PROD{Z} div g1^k = g1^r_sum) AND (PROD{R} = g2^r_sum))}
@@ -237,10 +246,10 @@ def generateNumProof(question_id: str, g2: Point,  R_list: List[Point],
     G_2 = pointSum(R_list)
 
     # calculate proof hash
-    c = proofNumHash(question_id, g1, G_1, g2, G_2, t_1, t_2)
+    c = proofNumHash(question_id, g1, G_1, g2, G_2, t_1, t_2) % n
 
-    # if difference < 0 then must make positive to account for the '-' sign
-    return (hex(c)[2:], hex(abs(w - (c * sum(r_list))))[2:])
+    r = (w - (c * sum(r_list))) % n
+    return (c, r)
 
 def verifyNumProof(question_id: str, g1: Point, g2: Point, R_list: List[Point],
                    Z_list: List[Point], proof_c: mpz, proof_r: mpz,
@@ -258,8 +267,10 @@ def verifyNumProof(question_id: str, g1: Point, g2: Point, R_list: List[Point],
     t_1 = (g1 * proof_r) + (G_1 * proof_c)
     t_2 = (g2 * proof_r) + (G_2 * proof_c)
 
+    c_prime = proofNumHash(question_id, g1, G_1, g2, G_2, t_1, t_2) % n
+
     # compare hashes
-    return proof_c == proofNumHash(question_id, g1, G_1, g2, G_2, t1, t2)
+    return proof_c == c_prime
 
 def verifyElectionJson(filepath: str, election_id: str) -> bool:
     """
@@ -304,7 +315,8 @@ def verifyElectionJson(filepath: str, election_id: str) -> bool:
 
     # total_receipts[question_id][i]['R'] = partial product of R for choice i in
     #                                       question with ID = question_id
-    tally_dict = {question_id:[{'R':INFINITY, 'Z':INFINITY}] \
+    tally_dict = {question_id:[{'R':INFINITY, 'Z':INFINITY} \
+                               for i in range(len(questions[question_id]['choices']))] \
                   for question_id in questions.keys()}
 
     # then iterate over each ballot
@@ -312,24 +324,27 @@ def verifyElectionJson(filepath: str, election_id: str) -> bool:
 
         has_gens = True
 
-        question_id = ballot['stage_1']['question_id']
+        stage_1 = ballot['stage_1']['data']
+        stage_2 = ballot['stage_2']['data']
+
+        question_id = stage_1['question_id']
+        current_question = questions[question_id]
         
         # make sure the ballot was either AUDITED or CONFIRMED
-        if ballot['state'] == "AUDITED":
+        if stage_2['state'] == "AUDITED":
             audited = True
-        elif ballot['state'] == "CONFIRMED":
+        elif stage_2['state'] == "CONFIRMED":
             audited = False
         else:
             audited = None
-            print(f"ERROR: Invalid state for ballot ID {ballot['ballot_id']}")
+            print(f"ERROR: Invalid state for ballot ID {stage_1['ballot_id']}")
             valid = False
 
         # verify stage 1 hash
-        first_hash = hashString(ballot['stage_1']['data'])
-        stage_1 = json.dumps(ballot['stage_1']['data'])
+        first_hash = hashString(json.dumps(stage_1))
         
         if first_hash != ballot['stage_1']['hash']:
-            print(f"ERROR: Non-matching first-stage ballot hash. Ballot ID {ballot['ballot_id']} has been tampered with.")
+            print(f"ERROR: Non-matching first-stage ballot hash. Ballot ID {stage_1['ballot_id']} has been tampered with.")
             valid = False
         
         if has_key and not verifyData(ballot['stage_1']['hash'], public_key,
@@ -338,83 +353,84 @@ def verifyElectionJson(filepath: str, election_id: str) -> bool:
             valid = False
 
         # verify stage 2 hash
-        second_hash = hashString(ballot['stage_2']['data'])
-        stage_2 = json.dumps(ballot['stage_2']['data'])
+        second_hash = hashString(json.dumps(stage_2))
         
         if second_hash != ballot['stage_2']['hash']:
-            print(f"ERROR: Non-matching second-stage ballot hash. Ballot ID {ballot['ballot_id']} has been tampered with.")
+            print(f"ERROR: Non-matching second-stage ballot hash. Ballot ID {stage_1['ballot_id']} has been tampered with.")
             valid = False
 
         if has_key and not verifyData(ballot['stage_2']['hash'], public_key,
                                       ballot['stage_2']['sign']):
-            print(f"ERROR: Ballot ID {ballot['ballot_id']} has a (second) hash that was not not signed by the attached public key!")
+            print(f"ERROR: Ballot ID {stage_1['ballot_id']} has a (second) hash that was not not signed by the attached public key!")
             valid = False
 
         R_list = []
         Z_list = []
 
         # verify the proofs for each choice
-        for choice, receipt in ballot['choices']:
+        for i in range(len(stage_1['choices'])):
+            receipt = stage_1['choices'][i]
+            receipt_2 = stage_2['choices'][i]
             try:
-                c_1 = hexToMpz(stage_1['c_1'])
-                c_2 = hexToMpz(stage_1['c_2'])
-                r_1 = hexToMpz(stage_1['r_1'])
-                r_2 = hexToMpz(stage_1['r_2'])
-                num_c = hexToMpz(stage_1['num_proof_c'])
-                num_r = hexToMpz(stage_1['num_proof_r'])
+                c_1 = mpz(receipt['c_1'])
+                c_2 = mpz(receipt['c_2'])
+                r_1 = mpz(receipt['r_1'])
+                r_2 = mpz(receipt['r_2'])
+                num_c = mpz(stage_1['num_proof_c'])
+                num_r = mpz(stage_1['num_proof_r'])
 
-                R = bytestrToPoint(stage_1['R'])
-                Z = bytestrToPoint(stage_1['Z'])
+                R = bytestrToPoint(receipt['R'])
+                Z = bytestrToPoint(receipt['Z'])
 
                 if audited:
-                    r = hexToMpz(stage_2['r'])
-                    voted = int(stage_2['voted'])
+                    r = mpz(receipt_2['r'])
+                    voted = int(receipt_2['voted'])
                 else:
-                    old_R = total_receipts[question_id][str(stage_1['index'])]['R']
-                    old_Z = total_receipts[question_id][str(stage_1['index'])]['Z']
-                    total_receipts[question_id][str(stage_1['index'])]['R'] = old_R + R
-                    total_receipts[question_id][str(stage_1['index'])]['Z'] = old_Z + Z
+                    old_R = tally_dict[question_id][i]['R']
+                    old_Z = tally_dict[question_id][i]['Z']
+                    tally_dict[question_id][i]['R'] = old_R + R
+                    tally_dict[question_id][i]['Z'] = old_Z + Z
 
                 gen_1 = bytestrToPoint(current_question['gen_1'])
                 gen_2 = bytestrToPoint(current_question['gen_2'])
+                max_answers = current_question['max_answers']
                 
                 R_list.append(R)
                 Z_list.append(Z)
                 
-            except ValueError:
-                print("ERROR: Could not parse some proofs for ballot: {ballot['ballot_id']} into 'mpz'")
+            except ValueError as e:
+                print(f"ERROR: Could not parse some proofs for ballot: {stage_1['ballot_id']} into 'mpz': {e}")
                 valid = False
                 has_gens = False
                 good_points = False
 
             # if audited, check that R and Z in stage 1 match
             # the vote_secret and choice revealed in stage 2
-            if audited:
+            if has_gens and audited:
                 try:
                     if (gen_2 * r) != R:
-                        print("ERROR: Bad secret found for ballot ID: {ballot['ballot_id']}")
+                        print("ERROR: Bad secret found for ballot ID: {stage_1['ballot_id']}")
                         valid = False
                     
                     if (gen_1 * (r + voted)) != Z:
-                        print("ERROR: Bad secret OR vote value found for ballot ID: {ballot['ballot_id']}")
+                        print("ERROR: Bad secret OR vote value found for ballot ID: {stage_1['ballot_id']}")
                         valid = False
                 except ValueError:
-                    print("ERROR: Could not parse some secrets for ballot: {ballot['ballot_id']} into Points")
+                    print("ERROR: Could not parse some secrets for ballot: {stage_1['ballot_id']} into Points")
                     valid = False
                     good_points = False
                 
             # verify well-formedness proof
-            if has_gens and not verifyZKProof(ballot['question_id'], gen_1, gen_2,
-                                              R, Z, c_1, c_2,
-                                              r_1, r_2):
-                print("ERROR: Could not verify a zero-knowledge proof for ballot: {ballot['ballot_id']}")
+            if has_gens and not verifyZKProof(question_id, gen_1, gen_2, R, Z,
+                                              c_1, c_2, r_1, r_2):
+                print(f"ERROR: Could not verify a zero-knowledge proof for ballot: {stage_1['ballot_id']} choice {i}")
                 valid = False
             
         # verify overall extra number proof
-        if good_points and not verifyNumProof(ballot['question_id'], gen_1, gen_2,
-                                              R_list, Z_list, num_c, num_r,
-                                              int(ballot['max_answers'])):
-            print("ERROR: Could not verify the total number proof for ballot: {ballot['ballot_id']}")
+        if good_points and not verifyNumProof(question_id, gen_1, gen_2, R_list,
+                                              Z_list, num_c, num_r,
+                                              max_answers):
+            print(f"ERROR: Could not verify the total number proof for ballot: {stage_1['ballot_id']}")
             valid = False
 
 
@@ -423,24 +439,25 @@ def verifyElectionJson(filepath: str, election_id: str) -> bool:
         gen_1 = bytestrToPoint(question_dict['gen_1'])
         gen_2 = bytestrToPoint(question_dict['gen_2'])
         
-        for choice_id, choice_dict in question_dict['choices'].items():
-            s = hexToMpz(choice_dict['s'])
-            t = hexToMpz(choice_dict['t'])
-            if s * gen_2 != total_receipts[question_id][choice_id]['R']:
-                print(f"ERROR: Could not verify the secret sum for choice {choice_id} ({choice_dict['text']}) in question {question_id}.")
+        for i in range(len(question_dict['choices'])):
+            choice_dict = question_dict['choices'][str(i)]
+            s = mpz(choice_dict['s'])
+            t = mpz(choice_dict['t'])
+            if s * gen_2 != tally_dict[question_id][i]['R']:
+                print(f"ERROR: Could not verify the secret sum for choice {choice_dict['text']} in question {question_id}.")
                 valid = False
                 
-            if (s + t) * gen_1 != total_receipts[question_id][choice_id]['Z']:
-                print(f"ERROR: Could not verify the tally for choice {choice_id} ({choice_dict['text']}) in question {question_id}.")
+            if (s + t) * gen_1 != tally_dict[question_id][i]['Z']:
+                print(f"ERROR: Could not verify the tally for choice {choice_dict['text']} in question {question_id}.")
                 valid = False
                 
     if valid:
-        print("###############################")
+        print("\n###############################")
         print("Election has been verified!")
-        print("###############################")
+        print("\n###############################")
         return True
     
-    print("###############################")
+    print("\n####################################################################")
     print("Election is **NOT** verified! Please contact the election organiser.")
-    print("###############################")
+    print("\n####################################################################")
     return False        

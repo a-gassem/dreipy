@@ -11,7 +11,8 @@ from Voter import Voter
 from Election import Election
 from Question import Question
 from crypto import (generateRandSecret, generateR, generateZ, generateZKProof,
-                    generatePair, hashString, generateNumProof, signData)
+                    generatePair, hashString, generateNumProof, signData,
+                    verifyZKProof, g1)
 
 from urllib.parse import urlparse, urljoin
 from uuid import uuid4
@@ -271,7 +272,7 @@ def firstReceipt(question: Question, election_id: str, voter_id: str,
                                              question.gen_2, R, Z, r)
 
         # add receipt to database for this ballot
-        if insertReceipt(ballot_id, hex(r)[2:], R, Z, r_1, r_2, c_1, c_2,
+        if insertReceipt(ballot_id, r, R, Z, r_1, r_2, c_1, c_2,
                          choice, voted) is None:
             flash("Could not finish making your ballot receipt", "error")
             return None
@@ -281,11 +282,14 @@ def firstReceipt(question: Question, election_id: str, voter_id: str,
             "index": choice,
             "Z": pointToBytestr(Z),
             "R": pointToBytestr(R),
-            "c_1": c_1,
-            "c_2": c_2,
-            "r_1": r_1,
-            "r_2": r_2
+            "c_1": str(c_1),
+            "c_2": str(c_2),
+            "r_1": str(r_1),
+            "r_2": str(r_2)
             })
+
+        print(verifyZKProof(question.question_id, g1, question.gen_2, R, Z, c_1, c_2,
+                            r_1, r_2))
 
         # add receipts and secret to list for final proof
         R_list.append(R)
@@ -302,8 +306,8 @@ def firstReceipt(question: Question, election_id: str, voter_id: str,
     receipt_data = {
         "ballot_id":ballot_id,
         "question_id":question.question_id,
-        "num_proof_c": num_c,
-        "num_proof_r": num_r,
+        "num_proof_c": str(num_c),
+        "num_proof_r": str(num_r),
         "max_answers": question.max_answers,
         "choices": choice_list
         }
@@ -325,7 +329,7 @@ def auditBallot(ballot_id: int) -> Optional[dict]:
     for secret, voted, choice in secret_list:
         new_receipt['choices'].append({
             'choice': choice,
-            'r': secret,
+            'r': str(secret),
             'voted': bool(voted)})
     updateAuditBallot(ballot_id, audited=True)
     return new_receipt
@@ -423,12 +427,13 @@ def makeElectionJson(election: Election) -> Optional[bool]:
     choices = getChoiceTallies(election)
     if choices is None:
         return False
-    
+
     questions = {}
     for question in election.questions:
         questions[question.question_id] = {
             "gen_1": pointToBytestr(question.gen_1),
             "gen_2": pointToBytestr(question.gen_2),
+            "max_answers": question.max_answers,
             "choices": choices[question.question_id]
             }
 

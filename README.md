@@ -6,7 +6,6 @@ Step 0: Download the source code
 
 Step 1: Create a virtual environment
 
-Windows:
 `py -3 -m venv dreipy`
 `dreipy\Scripts\activate`
 
@@ -17,4 +16,6 @@ Step 2: Install dependencies
 Step 3: Run the app
 
 `set FLASK_APP=main`
+`flask init-db`
+`flask init-keys`
 `flask run`
